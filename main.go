@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/rleo05/bittorrent-client/internal/bencode"
+	"github.com/rleo05/bittorrent-client/internal/torrent"
 )
 
 func main() {
@@ -45,5 +46,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println(result, infoHash)
+	mapResult, ok := result.(map[string]any)
+	if !ok {
+		log.Fatal("invalid .torrent file")
+	}
+
+	t, err := torrent.NewDecoder(mapResult, infoHash).DecodeTorrent()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("%+v\n", t)
 }
