@@ -165,6 +165,16 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 	torrent.Info = *info
 	torrent.InfoHash = d.infoHash
 
+	if info.Length != nil {
+		torrent.TotalLength = *info.Length
+	} else {
+		totalLength := int64(0)
+		for _, v := range *torrent.Info.Files {
+			totalLength += v.Length
+		}
+		torrent.TotalLength = totalLength
+	}
+
 	return torrent, nil
 }
 

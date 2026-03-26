@@ -17,6 +17,7 @@ type Torrent struct {
 
 	Info     Info
 	InfoHash [20]byte
+	TotalLength int64
 }
 
 type Info struct {

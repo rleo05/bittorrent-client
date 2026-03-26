@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 
 	"github.com/rleo05/bittorrent-client/internal/bencode"
@@ -12,6 +13,9 @@ import (
 )
 
 func main() {
+	_, cancel := signal.NotifyContext(context.Background())
+	defer cancel()
+
 	args := os.Args
 	if len(args) < 2 {
 		log.Fatal("missing .torrent file location")
@@ -56,5 +60,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("%+v\n", t)
+	torrent.NewSession(t).Start()
 }
