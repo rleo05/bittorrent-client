@@ -2,9 +2,12 @@ package torrent
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
 const (
@@ -48,27 +51,37 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 		return nil, fmt.Errorf("missing announce and announce-list")
 	}
 
-	if announce, ok := d.data[ANNOUNCE].([]byte); ok {
-		s := string(announce)
-		torrent.Announce = &s
+	if announceBytes, ok := d.data[ANNOUNCE].([]byte); ok {
+		u, err := url.ParseRequestURI(string(announceBytes))
+		if err == nil {
+			torrent.Announce = u
+		} else if d.data[ANNOUNCE_LIST] == nil {
+			return nil, fmt.Errorf("invalid announce URL %q: %w", string(announceBytes), err)
+		}
 	}
 
 	if announceListRaw, ok := d.data[ANNOUNCE_LIST].([]any); ok {
-		list := make([][]string, 0, len(announceListRaw))
+		list := make([][]*url.URL, 0, len(announceListRaw))
 		for _, tierRaw := range announceListRaw {
 			tierList, ok := tierRaw.([]any)
 			if !ok {
 				continue
 			}
-			subList := make([]string, 0, len(tierList))
+			tier := make([]*url.URL, 0, len(tierList))
 			for _, trackerRaw := range tierList {
 				if trackerBytes, ok := trackerRaw.([]byte); ok {
-					subList = append(subList, string(trackerBytes))
+					u, err := url.ParseRequestURI(string(trackerBytes))
+					if err == nil {
+						tier = append(tier, u)
+					}
 				}
 			}
-			if len(subList) > 0 {
-				list = append(list, subList)
+			if len(tier) > 0 {
+				list = append(list, tier)
 			}
+		}
+		if len(list) == 0 && torrent.Announce == nil {
+			return nil, fmt.Errorf("announce-list contains no valid URLs and announce is missing")
 		}
 		if len(list) > 0 {
 			torrent.AnnounceList = list
@@ -254,8 +267,8 @@ func (d *Decoder) getInfo(info map[string]any) (*Info, error) {
 	return result, nil
 }
 
-func (d *Decoder) getFiles(filesRaw []any) ([]File, error) {
-	files := make([]File, 0, len(filesRaw))
+func (d *Decoder) getFiles(filesRaw []any) ([]types.File, error) {
+	files := make([]types.File, 0, len(filesRaw))
 
 	for i, fileRaw := range filesRaw {
 		fileDict, ok := fileRaw.(map[string]any)
@@ -282,7 +295,7 @@ func (d *Decoder) getFiles(filesRaw []any) ([]File, error) {
 			path = append(path, filepath.Clean(string(segBytes)))
 		}
 
-		file := File{
+		file := types.File{
 			Length: length,
 			Path:   path,
 		}

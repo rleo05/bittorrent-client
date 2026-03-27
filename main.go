@@ -4,16 +4,20 @@ import (
 	"context"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 
 	"github.com/rleo05/bittorrent-client/internal/bencode"
 	"github.com/rleo05/bittorrent-client/internal/torrent"
 )
 
 func main() {
-	_, cancel := signal.NotifyContext(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM)
+	var wg sync.WaitGroup
 	defer cancel()
 
 	args := os.Args
@@ -60,5 +64,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	torrent.NewSession(t).Start()
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	session := torrent.NewSession(t, port)
+	session.Start(ctx, &wg)
+	wg.Wait()
 }

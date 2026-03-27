@@ -1,10 +1,15 @@
 package torrent
 
-import "time"
+import (
+	"net/url"
+	"time"
+
+	"github.com/rleo05/bittorrent-client/internal/types"
+)
 
 type Torrent struct {
-	Announce     *string
-	AnnounceList [][]string
+	Announce     *url.URL
+	AnnounceList [][]*url.URL
 
 	CreationDate *time.Time
 	Comment      *string
@@ -15,8 +20,8 @@ type Torrent struct {
 	UrlList   *[]string
 	Nodes     []Node
 
-	Info     Info
-	InfoHash [20]byte
+	Info        Info
+	InfoHash    [20]byte
 	TotalLength int64
 }
 
@@ -32,17 +37,7 @@ type Info struct {
 	Md5Sum  *string
 
 	Length *int64
-	Files  *[]File
-}
-
-type File struct {
-	Length int64
-
-	Path     []string
-	PathUTF8 *[]string
-
-	Md5Sum *string
-	Attr   *string
+	Files  *[]types.File
 }
 
 type Node struct {
