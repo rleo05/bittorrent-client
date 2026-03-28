@@ -1,66 +1,75 @@
 package torrent
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/rleo05/bittorrent-client/internal/bencode"
 	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
 const (
-	INFO          = "info"
-	ANNOUNCE      = "announce"
-	CREATION_DATE = "creation date"
-	COMMENT       = "comment"
-	CREATED_BY    = "created by"
-	ENCODING      = "encoding"
-	ANNOUNCE_LIST = "announce-list"
-	HTTPSEEDS     = "httpseeds"
-	URL_LIST      = "url-list"
-	NODES         = "nodes"
-	PIECE_LENGTH  = "piece length"
-	PIECES        = "pieces"
-	NAME          = "name"
-	PRIVATE       = "private"
-	SOURCE        = "source"
-	LENGTH        = "length"
-	MD5SUM        = "md5sum"
-	FILES         = "files"
-	PATH          = "path"
-	NAME_UTF8     = "name.utf-8"
-	PATH_UTF8     = "path.utf-8"
-	ATTR          = "attr"
+	info         = "info"
+	announce     = "announce"
+	creationDate = "creation date"
+	comment      = "comment"
+	createdBy    = "created by"
+	encoding     = "encoding"
+	announceList = "announce-list"
+	httpseeds    = "httpseeds"
+	urlList      = "url-list"
+	nodes        = "nodes"
+	pieceLength  = "piece length"
+	pieces       = "pieces"
+	name         = "name"
+	private      = "private"
+	source       = "source"
+	length       = "length"
+	md5sum       = "md5sum"
+	files        = "files"
+	path         = "path"
+	nameUTF8     = "name.utf-8"
+	pathUTF8     = "path.utf-8"
+	attr         = "attr"
 )
 
-type Decoder struct {
-	data     map[string]any
-	infoHash [20]byte
+func ParseTorrent(raw []byte) (*Torrent, error) {
+	parsed, rawInfo, err := bencode.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("bencode parse: %w", err)
+	}
+
+	data, ok := parsed.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid .torrent file: root is not a dictionary")
+	}
+
+	infoHash := sha1.Sum(rawInfo)
+
+	return parseTorrent(data, infoHash)
 }
 
-func NewDecoder(data map[string]any, infoHash [20]byte) *Decoder {
-	return &Decoder{data: data, infoHash: infoHash}
-}
-
-func (d *Decoder) DecodeTorrent() (*Torrent, error) {
+func parseTorrent(data map[string]any, infoHash [20]byte) (*Torrent, error) {
 	torrent := &Torrent{}
 
-	if d.data[ANNOUNCE] == nil && d.data[ANNOUNCE_LIST] == nil {
+	if data[announce] == nil && data[announceList] == nil {
 		return nil, fmt.Errorf("missing announce and announce-list")
 	}
 
-	if announceBytes, ok := d.data[ANNOUNCE].([]byte); ok {
+	if announceBytes, ok := data[announce].([]byte); ok {
 		u, err := url.ParseRequestURI(string(announceBytes))
 		if err == nil {
 			torrent.Announce = u
-		} else if d.data[ANNOUNCE_LIST] == nil {
+		} else if data[announceList] == nil {
 			return nil, fmt.Errorf("invalid announce URL %q: %w", string(announceBytes), err)
 		}
 	}
 
-	if announceListRaw, ok := d.data[ANNOUNCE_LIST].([]any); ok {
+	if announceListRaw, ok := data[announceList].([]any); ok {
 		list := make([][]*url.URL, 0, len(announceListRaw))
 		for _, tierRaw := range announceListRaw {
 			tierList, ok := tierRaw.([]any)
@@ -88,27 +97,27 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 		}
 	}
 
-	if comment, ok := d.data[COMMENT].([]byte); ok {
-		s := string(comment)
+	if commentBytes, ok := data[comment].([]byte); ok {
+		s := string(commentBytes)
 		torrent.Comment = &s
 	}
 
-	if creationDate, ok := d.data[CREATION_DATE].(int64); ok {
-		t := time.Unix(creationDate, 0)
+	if creationDateVal, ok := data[creationDate].(int64); ok {
+		t := time.Unix(creationDateVal, 0)
 		torrent.CreationDate = &t
 	}
 
-	if createdBy, ok := d.data[CREATED_BY].([]byte); ok {
-		s := string(createdBy)
+	if createdByBytes, ok := data[createdBy].([]byte); ok {
+		s := string(createdByBytes)
 		torrent.CreatedBy = &s
 	}
 
-	if encoding, ok := d.data[ENCODING].([]byte); ok {
-		s := string(encoding)
+	if encodingBytes, ok := data[encoding].([]byte); ok {
+		s := string(encodingBytes)
 		torrent.Encoding = &s
 	}
 
-	if httpSeedsRaw, ok := d.data[HTTPSEEDS].([]any); ok {
+	if httpSeedsRaw, ok := data[httpseeds].([]any); ok {
 		seeds := make([]string, 0, len(httpSeedsRaw))
 		for _, seedRaw := range httpSeedsRaw {
 			if seedBytes, ok := seedRaw.([]byte); ok {
@@ -120,7 +129,7 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 		}
 	}
 
-	if urlListRaw, ok := d.data[URL_LIST].([]any); ok {
+	if urlListRaw, ok := data[urlList].([]any); ok {
 		urls := make([]string, 0, len(urlListRaw))
 		for _, urlRaw := range urlListRaw {
 			if urlBytes, ok := urlRaw.([]byte); ok {
@@ -130,14 +139,13 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 		if len(urls) > 0 {
 			torrent.UrlList = &urls
 		}
-	} else if urlBytes, ok := d.data[URL_LIST].([]byte); ok {
-		s := string(urlBytes)
-		urls := []string{s}
+	} else if urlBytes, ok := data[urlList].([]byte); ok {
+		urls := []string{string(urlBytes)}
 		torrent.UrlList = &urls
 	}
 
-	if nodesRaw, ok := d.data[NODES].([]any); ok {
-		nodes := make([]Node, 0, len(nodesRaw))
+	if nodesRaw, ok := data[nodes].([]any); ok {
+		nodesList := make([]Node, 0, len(nodesRaw))
 		for _, nodeRaw := range nodesRaw {
 			if node, ok := nodeRaw.([]any); ok {
 				if len(node) != 2 {
@@ -154,32 +162,31 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 				if port < 0 || port > 65535 {
 					continue
 				}
-
-				nodes = append(nodes, Node{
+				nodesList = append(nodesList, Node{
 					Host: string(host),
 					Port: int(port),
 				})
 			}
 		}
-		if len(nodes) > 0 {
-			torrent.Nodes = nodes
+		if len(nodesList) > 0 {
+			torrent.Nodes = nodesList
 		}
 	}
 
-	infoRaw, ok := d.data[INFO].(map[string]any)
+	infoRaw, ok := data[info].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid info")
 	}
 
-	info, err := d.getInfo(infoRaw)
+	infoData, err := parseInfo(infoRaw)
 	if err != nil {
 		return nil, fmt.Errorf("decoding info: %w", err)
 	}
-	torrent.Info = *info
-	torrent.InfoHash = d.infoHash
+	torrent.Info = *infoData
+	torrent.InfoHash = infoHash
 
-	if info.Length != nil {
-		torrent.TotalLength = *info.Length
+	if infoData.Length != nil {
+		torrent.TotalLength = *infoData.Length
 	} else {
 		totalLength := int64(0)
 		for _, v := range *torrent.Info.Files {
@@ -191,84 +198,83 @@ func (d *Decoder) DecodeTorrent() (*Torrent, error) {
 	return torrent, nil
 }
 
-func (d *Decoder) getInfo(info map[string]any) (*Info, error) {
+func parseInfo(infoMap map[string]any) (*Info, error) {
 	result := &Info{}
 
-	nameBytes, ok := info[NAME].([]byte)
+	nameBytes, ok := infoMap[name].([]byte)
 	if !ok || len(nameBytes) == 0 {
 		return nil, fmt.Errorf("missing or invalid info.name")
 	}
 	result.Name = filepath.Clean(strings.TrimLeft(string(nameBytes), "/"))
 
-	if nameUTF8, ok := info[NAME_UTF8].([]byte); ok {
-		s := filepath.Clean(strings.TrimLeft(string(nameUTF8), "/"))
+	if nameUTF8Bytes, ok := infoMap[nameUTF8].([]byte); ok {
+		s := filepath.Clean(strings.TrimLeft(string(nameUTF8Bytes), "/"))
 		result.NameUTF8 = &s
 	}
 
-	pieceLength, ok := info[PIECE_LENGTH].(int64)
-	if !ok || pieceLength <= 0 {
+	pieceLen, ok := infoMap[pieceLength].(int64)
+	if !ok || pieceLen <= 0 {
 		return nil, fmt.Errorf("missing or invalid info.piece length")
 	}
-	result.PieceLength = pieceLength
+	result.PieceLength = pieceLen
 
-	pieces, ok := info[PIECES].([]byte)
-	if !ok || len(pieces) == 0 {
+	piecesBytes, ok := infoMap[pieces].([]byte)
+	if !ok || len(piecesBytes) == 0 {
 		return nil, fmt.Errorf("missing or invalid info.pieces")
 	}
-	if len(pieces)%20 != 0 {
+	if len(piecesBytes)%20 != 0 {
 		return nil, fmt.Errorf("invalid info.pieces")
 	}
-	result.Pieces = pieces
+	result.Pieces = piecesBytes
 
-	if private, ok := info[PRIVATE].(int64); ok {
-		if private != 0 && private != 1 {
+	if privateVal, ok := infoMap[private].(int64); ok {
+		if privateVal != 0 && privateVal != 1 {
 			return nil, fmt.Errorf("invalid info.private")
 		}
-
-		privateBool := private == 1
+		privateBool := privateVal == 1
 		result.Private = &privateBool
 	}
 
-	if source, ok := info[SOURCE].([]byte); ok {
-		s := string(source)
+	if sourceBytes, ok := infoMap[source].([]byte); ok {
+		s := string(sourceBytes)
 		result.Source = &s
 	}
 
-	if md5sum, ok := info[MD5SUM].([]byte); ok {
-		s := string(md5sum)
+	if md5sumBytes, ok := infoMap[md5sum].([]byte); ok {
+		s := string(md5sumBytes)
 		result.Md5Sum = &s
 	}
 
-	var length *int64
-	if l, ok := info[LENGTH].(int64); ok {
-		length = &l
-		result.Length = length
+	var lengthVal *int64
+	if l, ok := infoMap[length].(int64); ok {
+		lengthVal = &l
+		result.Length = lengthVal
 	}
 
 	var filesRaw []any
-	if f, ok := info[FILES].([]any); ok {
+	if f, ok := infoMap[files].([]any); ok {
 		filesRaw = f
 	}
 
-	if length == nil && filesRaw == nil {
+	if lengthVal == nil && filesRaw == nil {
 		return nil, fmt.Errorf("info must contain 'length' or 'files'")
 	}
 
-	if length != nil && filesRaw != nil {
+	if lengthVal != nil && filesRaw != nil {
 		return nil, fmt.Errorf("info must have either 'length' or 'files', not both")
 	}
 
-	files, err := d.getFiles(filesRaw)
+	filesList, err := parseFiles(filesRaw)
 	if err != nil {
 		return nil, err
 	}
-	result.Files = &files
+	result.Files = &filesList
 
 	return result, nil
 }
 
-func (d *Decoder) getFiles(filesRaw []any) ([]types.File, error) {
-	files := make([]types.File, 0, len(filesRaw))
+func parseFiles(filesRaw []any) ([]types.File, error) {
+	filesList := make([]types.File, 0, len(filesRaw))
 
 	for i, fileRaw := range filesRaw {
 		fileDict, ok := fileRaw.(map[string]any)
@@ -276,54 +282,54 @@ func (d *Decoder) getFiles(filesRaw []any) ([]types.File, error) {
 			return nil, fmt.Errorf("files[%d]: invalid file entry", i)
 		}
 
-		length, ok := fileDict[LENGTH].(int64)
+		lengthVal, ok := fileDict[length].(int64)
 		if !ok {
 			return nil, fmt.Errorf("files[%d]: missing or invalid length", i)
 		}
 
-		pathRaw, ok := fileDict[PATH].([]any)
+		pathRaw, ok := fileDict[path].([]any)
 		if !ok || len(pathRaw) == 0 {
 			return nil, fmt.Errorf("files[%d]: missing or invalid path", i)
 		}
 
-		path := make([]string, 0, len(pathRaw))
+		pathSegments := make([]string, 0, len(pathRaw))
 		for _, segment := range pathRaw {
 			segBytes, ok := segment.([]byte)
 			if !ok {
 				return nil, fmt.Errorf("files[%d]: invalid path segment", i)
 			}
-			path = append(path, filepath.Clean(string(segBytes)))
+			pathSegments = append(pathSegments, filepath.Clean(string(segBytes)))
 		}
 
 		file := types.File{
-			Length: length,
-			Path:   path,
+			Length: lengthVal,
+			Path:   pathSegments,
 		}
 
-		if pathUTF8Raw, ok := fileDict[PATH_UTF8].([]any); ok {
-			pathUTF8 := make([]string, 0, len(pathUTF8Raw))
+		if pathUTF8Raw, ok := fileDict[pathUTF8].([]any); ok {
+			pathUTF8Segments := make([]string, 0, len(pathUTF8Raw))
 			for _, segment := range pathUTF8Raw {
 				if segBytes, ok := segment.([]byte); ok {
-					pathUTF8 = append(pathUTF8, string(segBytes))
+					pathUTF8Segments = append(pathUTF8Segments, string(segBytes))
 				}
 			}
-			if len(pathUTF8) > 0 {
-				file.PathUTF8 = &pathUTF8
+			if len(pathUTF8Segments) > 0 {
+				file.PathUTF8 = &pathUTF8Segments
 			}
 		}
 
-		if md5sum, ok := fileDict[MD5SUM].([]byte); ok {
-			s := string(md5sum)
+		if md5sumBytes, ok := fileDict[md5sum].([]byte); ok {
+			s := string(md5sumBytes)
 			file.Md5Sum = &s
 		}
 
-		if attr, ok := fileDict[ATTR].([]byte); ok {
-			s := string(attr)
+		if attrBytes, ok := fileDict[attr].([]byte); ok {
+			s := string(attrBytes)
 			file.Attr = &s
 		}
 
-		files = append(files, file)
+		filesList = append(filesList, file)
 	}
 
-	return files, nil
+	return filesList, nil
 }

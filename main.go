@@ -11,14 +11,13 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/rleo05/bittorrent-client/internal/bencode"
 	"github.com/rleo05/bittorrent-client/internal/torrent"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM)
-	var wg sync.WaitGroup
 	defer cancel()
+	var wg sync.WaitGroup
 
 	args := os.Args
 	if len(args) < 2 {
@@ -49,17 +48,7 @@ func main() {
 		log.Fatal(".torrent file exceeds 10MB")
 	}
 
-	result, infoHash, err := bencode.Parse(torrentData)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	mapResult, ok := result.(map[string]any)
-	if !ok {
-		log.Fatal("invalid .torrent file")
-	}
-
-	t, err := torrent.NewDecoder(mapResult, infoHash).DecodeTorrent()
+	t, err := torrent.ParseTorrent(torrentData)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -74,5 +63,6 @@ func main() {
 
 	session := torrent.NewSession(t, port)
 	session.Start(ctx, &wg)
+
 	wg.Wait()
 }

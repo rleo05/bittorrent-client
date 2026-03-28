@@ -2,31 +2,30 @@ package bencode
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"fmt"
 )
 
 type Parser struct {
-	data     []byte
-	pos      int
-	infoHash [20]byte
+	data    []byte
+	pos     int
+	rawInfo []byte
 }
 
-const MAX_STRING_SIZE = 10 * 1024 * 1024
+const maxStringSize = 10 * 1024 * 1024
 
-func Parse(data []byte) (result any, hash [20]byte, err error) {
+func Parse(data []byte) (result any, rawInfo []byte, err error) {
 	parser := &Parser{data: data, pos: 0}
 
 	result, err = parser.parseValue()
 	if err != nil {
-		return nil, [20]byte{}, fmt.Errorf("bencode parse error: %w", err)
+		return nil, nil, fmt.Errorf("bencode parse error: %w", err)
 	}
 
 	if parser.pos < len(data) {
-		return nil, [20]byte{}, fmt.Errorf("extra data after root element")
+		return nil, nil, fmt.Errorf("extra data after root element")
 	}
 
-	return result, parser.infoHash, nil
+	return result, parser.rawInfo, nil
 }
 
 func (p *Parser) parseValue() (any, error) {
@@ -79,9 +78,7 @@ func (p *Parser) parseDictionary() (map[string]any, error) {
 		}
 
 		if key == "info" {
-			endPos := p.pos
-			rawInfoBytes := p.data[startPos:endPos]
-			p.infoHash = sha1.Sum(rawInfoBytes)
+			p.rawInfo = p.data[startPos:p.pos]
 		}
 
 		dict[key] = value
@@ -206,13 +203,13 @@ func (p *Parser) parseString() ([]byte, error) {
 
 		digit := int(currByte - '0')
 
-		if totalBytes > MAX_STRING_SIZE/10 {
+		if totalBytes > maxStringSize/10 {
 			return nil, fmt.Errorf("string length overflow")
 		}
 
 		totalBytes = totalBytes*10 + digit
 
-		if totalBytes > MAX_STRING_SIZE {
+		if totalBytes > maxStringSize {
 			return nil, fmt.Errorf("string too large")
 		}
 		p.next()

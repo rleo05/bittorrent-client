@@ -1,6 +1,9 @@
 package types
 
-import "sync/atomic"
+import (
+	"net"
+	"sync/atomic"
+)
 
 type Stats struct {
 	Downloaded atomic.Int64
@@ -9,7 +12,7 @@ type Stats struct {
 }
 
 type PeerAddress struct {
-	IP   string
+	IP   net.IP
 	Port int
 }
 
