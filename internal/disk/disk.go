@@ -10,8 +10,8 @@ import (
 type Config struct {
 	WriteChan   chan types.DiskWrite
 	Name        string
-	Length      *int64
-	PieceLength int64
+	Length      *uint64
+	PieceLength uint64
 	Files       *[]types.File
 }
 

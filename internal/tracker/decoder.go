@@ -37,11 +37,11 @@ func ParseResponse(data map[string]any) (*Response, error) {
 	if !ok || intervalVal <= 0 {
 		resp.interval = defaultInterval
 	} else {
-		resp.interval = int(intervalVal)
+		resp.interval = uint32(intervalVal)
 	}
 
 	if minIntervalVal, ok := data[minInterval].(int64); ok && minIntervalVal > 0 {
-		resp.minInterval = int(minIntervalVal)
+		resp.minInterval = uint32(minIntervalVal)
 	}
 
 	if trackerIDBytes, ok := data[trackerID].([]byte); ok {
@@ -49,11 +49,11 @@ func ParseResponse(data map[string]any) (*Response, error) {
 	}
 
 	if completeVal, ok := data[complete].(int64); ok {
-		resp.complete = int(completeVal)
+		resp.complete = uint32(completeVal)
 	}
 
 	if incompleteVal, ok := data[incomplete].(int64); ok {
-		resp.incomplete = int(incompleteVal)
+		resp.incomplete = uint32(incompleteVal)
 	}
 
 	peersRaw, ok := data[peers]
@@ -72,7 +72,7 @@ func ParseResponse(data map[string]any) (*Response, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parsing peers6: %w", err)
 		}
-		resp.Peers6 = peers6List
+		resp.Peers = append(resp.Peers, peers6List...)
 	}
 
 	return resp, nil
@@ -97,7 +97,7 @@ func parseCompactPeers(data []byte) ([]types.PeerAddress, error) {
 	peersList := make([]types.PeerAddress, 0, len(data)/6)
 	for i := 0; i < len(data); i += 6 {
 		ip := net.IP(data[i : i+4])
-		port := int(binary.BigEndian.Uint16(data[i+4 : i+6]))
+		port := binary.BigEndian.Uint16(data[i+4 : i+6])
 		peersList = append(peersList, types.PeerAddress{IP: ip, Port: port})
 	}
 
@@ -112,7 +112,7 @@ func parseCompactPeers6(data []byte) ([]types.PeerAddress, error) {
 	peersList := make([]types.PeerAddress, 0, len(data)/18)
 	for i := 0; i < len(data); i += 18 {
 		ip := net.IP(data[i : i+16])
-		port := int(binary.BigEndian.Uint16(data[i+16 : i+18]))
+		port := binary.BigEndian.Uint16(data[i+16 : i+18])
 		peersList = append(peersList, types.PeerAddress{IP: ip, Port: port})
 	}
 
@@ -137,14 +137,16 @@ func parseDictPeers(list []any) ([]types.PeerAddress, error) {
 			continue
 		}
 
-		port, ok := dict["port"].(int64)
-		if !ok || port < 0 || port > 65535 {
+		portRaw, ok := dict["port"].(int64)
+		if !ok || portRaw < 0 || portRaw > 65535 {
 			continue
 		}
 
+		port := uint16(portRaw)
+
 		peersList = append(peersList, types.PeerAddress{
 			IP:   ip,
-			Port: int(port),
+			Port: port,
 		})
 	}
 

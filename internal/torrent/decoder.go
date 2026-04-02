@@ -188,7 +188,7 @@ func parseTorrent(data map[string]any, infoHash [20]byte) (*Torrent, error) {
 	if infoData.Length != nil {
 		torrent.TotalLength = *infoData.Length
 	} else {
-		totalLength := int64(0)
+		var totalLength uint64
 		for _, v := range *torrent.Info.Files {
 			totalLength += v.Length
 		}
@@ -216,7 +216,7 @@ func parseInfo(infoMap map[string]any) (*Info, error) {
 	if !ok || pieceLen <= 0 {
 		return nil, fmt.Errorf("missing or invalid info.piece length")
 	}
-	result.PieceLength = pieceLen
+	result.PieceLength = uint64(pieceLen)
 
 	piecesBytes, ok := infoMap[pieces].([]byte)
 	if !ok || len(piecesBytes) == 0 {
@@ -245,9 +245,10 @@ func parseInfo(infoMap map[string]any) (*Info, error) {
 		result.Md5Sum = &s
 	}
 
-	var lengthVal *int64
+	var lengthVal *uint64
 	if l, ok := infoMap[length].(int64); ok {
-		lengthVal = &l
+		ul := uint64(l)
+		lengthVal = &ul
 		result.Length = lengthVal
 	}
 
@@ -302,7 +303,7 @@ func parseFiles(filesRaw []any) ([]types.File, error) {
 		}
 
 		file := types.File{
-			Length: lengthVal,
+			Length: uint64(lengthVal),
 			Path:   pathSegments,
 		}
 

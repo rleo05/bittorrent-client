@@ -22,21 +22,21 @@ type Torrent struct {
 
 	Info        Info
 	InfoHash    [20]byte
-	TotalLength int64
+	TotalLength uint64
 }
 
 type Info struct {
 	Name     string
 	NameUTF8 *string
 
-	PieceLength int64
+	PieceLength uint64
 	Pieces      []byte
 
 	Private *bool
 	Source  *string
 	Md5Sum  *string
 
-	Length *int64
+	Length *uint64
 	Files  *[]types.File
 }
 

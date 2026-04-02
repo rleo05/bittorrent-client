@@ -39,7 +39,7 @@ func generatePeerID() [20]byte {
 	return peerID
 }
 
-func NewSession(data *Torrent, port int) *Session {
+func NewSession(data *Torrent, port uint16) *Session {
 	stats := &types.Stats{}
 	stats.Left.Store(data.TotalLength)
 	stats.Downloaded.Store(0)

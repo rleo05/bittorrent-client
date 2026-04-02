@@ -11,9 +11,9 @@ type Config struct {
 	ResponseBlockChan chan types.BlockResponse
 	RequestBlockChan  chan types.BlockRequest
 	WriteChan         chan types.DiskWrite
-	PieceLength       int64
+	PieceLength       uint64
 	Pieces            []byte
-	TotalLength       int64
+	TotalLength       uint64
 }
 
 type Manager struct {

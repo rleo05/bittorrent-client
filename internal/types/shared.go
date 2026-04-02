@@ -6,20 +6,20 @@ import (
 )
 
 type Stats struct {
-	Downloaded atomic.Int64
-	Uploaded   atomic.Int64
-	Left       atomic.Int64
+	Downloaded atomic.Uint64
+	Uploaded   atomic.Uint64
+	Left       atomic.Uint64
 }
 
 type PeerAddress struct {
 	IP   net.IP
-	Port int
+	Port uint16
 }
 
 type BlockRequest struct {
 	PieceIndex int
 	Offset     int
-	Length     int64
+	Length     uint32
 }
 
 type BlockResponse struct {
@@ -35,7 +35,7 @@ type DiskWrite struct {
 }
 
 type File struct {
-	Length int64
+	Length uint64
 
 	Path     []string
 	PathUTF8 *[]string

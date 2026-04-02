@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	var wg sync.WaitGroup
 
@@ -53,13 +53,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ln, err := net.Listen("tcp", ":0")
+	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ln.Close()
 
-	port := ln.Addr().(*net.TCPAddr).Port
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 
 	session := torrent.NewSession(t, port)
 	session.Start(ctx, &wg)
