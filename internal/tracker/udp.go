@@ -12,7 +12,7 @@ import (
 	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
-func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerResponse, error) {
+func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerResponse, error) {
 	connectTransactionId := rand.Uint32()
 	connectionRequest := &UDPConnectPacket{
 		ProtocolID:    0x41727101980,
@@ -34,9 +34,9 @@ func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerRe
 	defer conn.Close()
 
 	stop := context.AfterFunc(ctx, func() {
-        conn.SetReadDeadline(time.Now())
-    })
-    defer stop()
+		conn.SetReadDeadline(time.Now())
+	})
+	defer stop()
 
 	udpAddr := conn.LocalAddr().(*net.UDPAddr)
 	isIpv6 := udpAddr.IP.To4() == nil
@@ -62,7 +62,7 @@ func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerRe
 	transactionID := binary.BigEndian.Uint32(readBuf[4:8])
 
 	if action == 3 {
-	return nil, fmt.Errorf("tracker error: %s", string(readBuf[8:n]))
+		return nil, fmt.Errorf("tracker error: %s", string(readBuf[8:n]))
 	}
 
 	if action != 0 {
@@ -75,27 +75,23 @@ func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerRe
 
 	connectionID := binary.BigEndian.Uint64(readBuf[8:16])
 
-	key, ok := UDPKeys[request.Url.Host]
-	if !ok {
-		key = rand.Uint32()
-		UDPKeys[request.Url.Host] = key
-	}
+	key := m.getUDPKey(request.Url.Host)
 
 	announceTransactionId := rand.Uint32()
 	announceRequest := &UDPAnnouncePacket{
-		ConnectionID: connectionID,
-		Action: 1,
+		ConnectionID:  connectionID,
+		Action:        1,
 		TransactionID: announceTransactionId,
-		InfoHash: request.InfoHash,
-		PeerID: request.PeerID,
-		Downloaded: request.Downloaded,
-		Left: request.Left,
-		Uploaded: request.Uploaded,
-		Event: UDPEvents[request.Event],
-		IpAddress: 0,
-		Key: key,
-		NumWant: -1,
-		Port: request.Port,
+		InfoHash:      request.InfoHash,
+		PeerID:        request.PeerID,
+		Downloaded:    request.Downloaded,
+		Left:          request.Left,
+		Uploaded:      request.Uploaded,
+		Event:         m.udpEvents[request.Event],
+		IpAddress:     0,
+		Key:           key,
+		NumWant:       -1,
+		Port:          request.Port,
 	}
 
 	buf = createUdpAnnouncePacket(announceRequest)
@@ -113,7 +109,7 @@ func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerRe
 	}
 
 	if n < 20 {
-		return nil, fmt.Errorf("malformed udp announce packet") 
+		return nil, fmt.Errorf("malformed udp announce packet")
 	}
 
 	action = binary.BigEndian.Uint32(readBuf[0:4])
@@ -136,17 +132,16 @@ func handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerRe
 		return nil, fmt.Errorf("invalid announce transactionID")
 	}
 
-
 	response := &TrackerResponse{interval: interval}
 
 	var peers []types.PeerAddress
 	if isIpv6 {
-		if len(rawPeers) % 18 != 0 {
+		if len(rawPeers)%18 != 0 {
 			return response, nil
 		}
 		peers, err = parseIpv6Peers(rawPeers)
 	} else {
-		if len(rawPeers) % 6 != 0 {
+		if len(rawPeers)%6 != 0 {
 			return response, nil
 		}
 		peers, err = parseIpv4Peers(rawPeers)
@@ -183,10 +178,10 @@ func parseIpv6Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 func parseIpv4Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 	peers := make([]types.PeerAddress, 0, len(rawPeers)/6)
 
-	for i := 0; i < len(rawPeers); i+=6 {
+	for i := 0; i < len(rawPeers); i += 6 {
 		ipBytes := rawPeers[i : i+4]
 		port := binary.BigEndian.Uint16(rawPeers[i+4 : i+6])
-		
+
 		if binary.BigEndian.Uint32(ipBytes) == 0 || port == 0 {
 			continue
 		}
@@ -217,6 +212,6 @@ func createUdpAnnouncePacket(announceRequest *UDPAnnouncePacket) []byte {
 	binary.BigEndian.PutUint32(buf[88:92], announceRequest.Key)
 	binary.BigEndian.PutUint32(buf[92:96], uint32(announceRequest.NumWant))
 	binary.BigEndian.PutUint16(buf[96:98], announceRequest.Port)
-	
+
 	return buf
 }

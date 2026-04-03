@@ -3,6 +3,8 @@ package tracker
 import (
 	"context"
 	"fmt"
+	"log"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +16,9 @@ type Manager struct {
 	*types.Stats
 	Config
 	httpClient *http.Client
+	udpEvents  map[string]uint32
+	udpKeys    map[string]uint32
+	udpKeysMu  sync.RWMutex
 }
 
 func NewManager(stats *types.Stats, cfg Config) *Manager {
@@ -23,23 +28,19 @@ func NewManager(stats *types.Stats, cfg Config) *Manager {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		udpEvents: map[string]uint32{
+			"":          0,
+			"completed": 1,
+			"started":   2,
+			"stopped":   3,
+		},
+		udpKeys: map[string]uint32{},
 	}
 }
 
 const (
 	minDelay = 30 * time.Second
 	maxDelay = 1 * time.Hour
-)
-
-var (
-	UDPEvents = map[string]uint32{
-		"":          0,
-		"completed": 1,
-		"started":   2,
-		"stopped":   3,
-	}
-
-	UDPKeys = make(map[string]uint32)
 )
 
 func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
@@ -87,6 +88,7 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*types.T
 			}
 
 			request.Url = t.Url
+			log.Printf("tracker announce started: url=%s event=%s", t.Url.String(), event)
 
 			resp, err := m.handleAnnounceRequest(ctx, request)
 
@@ -94,6 +96,7 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*types.T
 				t.Fails++
 				nextAnnounceDuration := backoff(t.Fails)
 				t.NextAnnounce = time.Now().Add(nextAnnounceDuration)
+				log.Printf("tracker announce failed: url=%s fails=%d retry_in=%s error=%v", t.Url.String(), t.Fails, nextAnnounceDuration, err)
 
 				continue
 			}
@@ -107,12 +110,15 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*types.T
 
 			v[0], v[j] = v[j], v[0]
 
+			enqueuedPeers := 0
 			for _, peer := range resp.Peers {
 				select {
 				case m.PeerChan <- peer:
+					enqueuedPeers++
 				default:
 				}
 			}
+			log.Printf("tracker announce succeeded: url=%s peers=%d enqueued=%d interval=%s", t.Url.String(), len(resp.Peers), enqueuedPeers, nextAnnounceDuration)
 
 			nextAnnounce = nextAnnounceDuration
 
@@ -126,12 +132,34 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*types.T
 func (m *Manager) handleAnnounceRequest(ctx context.Context, req *AnnounceRequest) (*TrackerResponse, error) {
 	switch req.Url.Scheme {
 	case "udp":
-		return handleUdpRequest(req, ctx)
+		return m.handleUdpRequest(req, ctx)
 	case "http", "https":
 		return handleHttpRequest(m.httpClient, req, ctx)
 	default:
 		return nil, fmt.Errorf("unsupported protocol")
 	}
+}
+
+func (m *Manager) getUDPKey(host string) uint32 {
+	m.udpKeysMu.RLock()
+	key, ok := m.udpKeys[host]
+	m.udpKeysMu.RUnlock()
+	if ok {
+		return key
+	}
+
+	m.udpKeysMu.Lock()
+	defer m.udpKeysMu.Unlock()
+
+	key, ok = m.udpKeys[host]
+	if ok {
+		return key
+	}
+
+	key = rand.Uint32()
+	m.udpKeys[host] = key
+
+	return key
 }
 
 func (m *Manager) getTrackerList() [][]*types.Tracker {
