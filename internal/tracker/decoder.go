@@ -22,12 +22,12 @@ const (
 	defaultInterval = 1800
 )
 
-func ParseResponse(data map[string]any) (*Response, error) {
+func ParseResponse(data map[string]any) (*TrackerResponse, error) {
 	if failureBytes, ok := data[failureReason].([]byte); ok {
 		return nil, fmt.Errorf("tracker error: %s", string(failureBytes))
 	}
 
-	resp := &Response{}
+	resp := &TrackerResponse{}
 
 	if warningBytes, ok := data[warningMessage].([]byte); ok {
 		resp.warningMessage = string(warningBytes)
