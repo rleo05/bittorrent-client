@@ -21,8 +21,8 @@ import (
 type Config struct {
 	InfoHash     [20]byte
 	PeerID       [20]byte
-	Announce     *url.URL
-	AnnounceList [][]*url.URL
+	Announce     *types.Tracker
+	AnnounceList [][]*types.Tracker
 	PeerChan     chan types.PeerAddress
 	Port         uint16
 }
@@ -86,6 +86,11 @@ func NewManager(stats *types.Stats, cfg Config) *Manager {
 	}
 }
 
+const (
+	minDelay = 30 * time.Second
+	maxDelay = 1 * time.Hour
+)
+
 var (
 	UDPEvents = map[string]uint32{
 		"":          0,
@@ -101,10 +106,14 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	event := "started"
+	
+	trackerList := [][]*types.Tracker{{m.Announce}}
+	if len(m.AnnounceList) > 0 {
+		trackerList = m.AnnounceList
+	}
 
 	for {
 		request := &AnnounceRequest{
-			Url:        m.AnnounceList[2][0],
 			InfoHash:   m.InfoHash,
 			PeerID:     m.PeerID,
 			Port:       m.Port,
@@ -116,38 +125,83 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 		var resp *Response
 		var err error
+		var nextAnnounce time.Duration
 
-		switch m.AnnounceList[1][0].Scheme {
-		case "udp":
-			resp, err = m.handleUdpRequest(request, ctx)
-		case "http", "https":
-			resp, err = m.handleHttpRequest(request, ctx)
-		}
+		// iterate over each tier in the trackerlist
+		tiers:
+		for _, v := range trackerList {
+			// iterate over each tracker in the tier
+			for j, t := range v {
+				if !canAnnounce(t) {
+					continue
+				}
 
-		if err != nil {
-			log.Printf("error requesting tracker: %+v", err)
+				request.Url = t.Url
 
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				continue
+				switch t.Url.Scheme {
+				case "udp":
+					resp, err = m.handleUdpRequest(request, ctx)
+				case "http", "https":
+					resp, err = m.handleHttpRequest(request, ctx)
+				}
+				
+				if err != nil {
+					t.Fails++
+					nextAnnounceDuration := backoff(t.Fails)
+					t.NextAnnounce = time.Now().Add(nextAnnounceDuration)
+
+					continue
+				} 
+				
+				t.Fails = 0
+				t.MinInterval = time.Duration(resp.minInterval) * time.Second
+				t.Interval = time.Duration(resp.interval) * time.Second
+
+				nextAnnounceDuration := time.Duration(resp.interval) * time.Second
+				t.NextAnnounce = time.Now().Add(nextAnnounceDuration)
+				event = ""
+
+				v[0], v[j] = v[j], v[0]
+
+				for _, peer := range resp.Peers {
+					select {
+					case m.PeerChan <- peer:
+					default:
+					}
+				}
+
+				nextAnnounce = nextAnnounceDuration
+
+				break tiers
 			}
 		}
 
-		event = ""
+		if nextAnnounce == 0 {
+			earliestTime := trackerList[0][0].NextAnnounce
 
-		for _, peer := range resp.Peers {
-			select {
-			case m.PeerChan <- peer:
-			default:
+			for _, v := range trackerList {
+				for _, t := range v {
+					if t.NextAnnounce.Before(earliestTime) {
+						earliestTime = t.NextAnnounce
+					}
+				}
 			}
+            
+			nextAnnounce = time.Until(earliestTime)
+
+			if nextAnnounce <= 0 {
+				nextAnnounce = 5 * time.Second
+			}
+		}
+
+		if nextAnnounce > maxDelay {
+			nextAnnounce = maxDelay
 		}
 
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Duration(resp.interval) * time.Second):
+		case <-time.After(nextAnnounce):
 			continue
 		}
 	}
@@ -155,10 +209,10 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 func (m *Manager) handleHttpRequest(request *AnnounceRequest, ctx context.Context) (*Response, error) {
 	params := createHttpQueryParam(request)
+	url := *request.Url
+	url.RawQuery = params.Encode()
 
-	request.Url.RawQuery = params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, request.Url.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating http request: %w", err)
 	}
@@ -168,6 +222,10 @@ func (m *Manager) handleHttpRequest(request *AnnounceRequest, ctx context.Contex
 		return nil, fmt.Errorf("error executing http request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tracker returned status %d", resp.StatusCode)
+	}
 
 	rawBencode, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -253,11 +311,20 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 
 	action := binary.BigEndian.Uint32(readBuf[0:4])
 	transactionID := binary.BigEndian.Uint32(readBuf[4:8])
-	connectionID := binary.BigEndian.Uint64(readBuf[8:16])
 
-	if action != 0 || transactionID != uint32(connectTransactionId) {
-		return nil, fmt.Errorf("invalid udp response")
+	if action == 3 {
+	return nil, fmt.Errorf("tracker error: %s", string(readBuf[8:n]))
 	}
+
+	if action != 0 {
+		return nil, fmt.Errorf("invalid udp connect action: %d", action)
+	}
+
+	if transactionID != connectTransactionId {
+		return nil, fmt.Errorf("invalid udp connect transaction id")
+	}
+
+	connectionID := binary.BigEndian.Uint64(readBuf[8:16])
 
 	key, ok := UDPKeys[request.Url.Host]
 	if !ok {
@@ -278,7 +345,7 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 		Event: UDPEvents[request.Event],
 		IpAddress: 0,
 		Key: key,
-		NumWant: 50,
+		NumWant: -1,
 		Port: request.Port,
 	}
 
@@ -289,6 +356,7 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 		return nil, fmt.Errorf("error writing to udp announce: %w", err)
 	}
 
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	readBuf = make([]byte, 1500)
 	n, err = conn.Read(readBuf)
 	if err != nil {
@@ -301,6 +369,15 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 
 	action = binary.BigEndian.Uint32(readBuf[0:4])
 	transactionID = binary.BigEndian.Uint32(readBuf[4:8])
+
+	if action == 3 {
+		return nil, fmt.Errorf("%s", string(readBuf[8:n]))
+	}
+
+	if action != 1 {
+		return nil, fmt.Errorf("invalid action: expected 1, got %d", action)
+	}
+
 	interval := binary.BigEndian.Uint32(readBuf[8:12])
 	_ = binary.BigEndian.Uint32(readBuf[12:16]) // leechers
 	_ = binary.BigEndian.Uint32(readBuf[16:20]) // seeders
@@ -310,9 +387,6 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 		return nil, fmt.Errorf("invalid announce transactionID")
 	}
 
-	if action != 1 {
-		return nil, fmt.Errorf("invalid action: expected 1, got %d", action)
-	}
 
 	response := &Response{interval: interval}
 
@@ -358,7 +432,7 @@ func parseIpv6Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 }
 
 func parseIpv4Peers(rawPeers []byte) ([]types.PeerAddress, error) {
-	peers := make([]types.PeerAddress, 0, len(rawPeers) % 6)
+	peers := make([]types.PeerAddress, 0, len(rawPeers)/6)
 
 	for i := 0; i < len(rawPeers); i+=6 {
 		ipBytes := rawPeers[i : i+4]
@@ -396,4 +470,16 @@ func createUdpAnnouncePacket(announceRequest *UDPAnnouncePacket) []byte {
 	binary.BigEndian.PutUint16(buf[96:98], announceRequest.Port)
 	
 	return buf
+}
+
+func canAnnounce(t *types.Tracker) bool {
+	return !time.Now().Before(t.NextAnnounce)
+}
+
+func backoff(fails int) time.Duration {
+    if fails <= 0 {
+        return minDelay
+    }
+    secs := 30 * (1 << (fails - 1))
+    return time.Duration(secs) * time.Second
 }

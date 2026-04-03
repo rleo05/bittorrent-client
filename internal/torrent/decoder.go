@@ -3,6 +3,7 @@ package torrent
 import (
 	"crypto/sha1"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -61,30 +62,48 @@ func parseTorrent(data map[string]any, infoHash [20]byte) (*Torrent, error) {
 	}
 
 	if announceBytes, ok := data[announce].([]byte); ok {
-		u, err := url.ParseRequestURI(string(announceBytes))
+		url, err := url.ParseRequestURI(string(announceBytes))
 		if err == nil {
-			torrent.Announce = u
+			tracker := &types.Tracker{
+				Url: url,
+				Tier: 0,
+				Fails: 0,
+				NextAnnounce: time.Now(),
+			}
+			torrent.Announce = tracker
 		} else if data[announceList] == nil {
 			return nil, fmt.Errorf("invalid announce URL %q: %w", string(announceBytes), err)
 		}
 	}
 
 	if announceListRaw, ok := data[announceList].([]any); ok {
-		list := make([][]*url.URL, 0, len(announceListRaw))
-		for _, tierRaw := range announceListRaw {
+		list := make([][]*types.Tracker, 0, len(announceListRaw))
+		for numTier, tierRaw := range announceListRaw {
 			tierList, ok := tierRaw.([]any)
 			if !ok {
 				continue
 			}
-			tier := make([]*url.URL, 0, len(tierList))
+
+			tier := make([]*types.Tracker, 0, len(tierList))
 			for _, trackerRaw := range tierList {
 				if trackerBytes, ok := trackerRaw.([]byte); ok {
-					u, err := url.ParseRequestURI(string(trackerBytes))
+					url, err := url.ParseRequestURI(string(trackerBytes))
 					if err == nil {
-						tier = append(tier, u)
+						tracker := &types.Tracker{
+							Url: url,
+							Tier: numTier,
+							Fails: 0,
+							NextAnnounce: time.Now(),
+						}
+						tier = append(tier, tracker)
 					}
 				}
 			}
+
+			rand.Shuffle(len(tier), func(i, j int) {
+				tier[i], tier[j] = tier[j], tier[i]
+			})
+
 			if len(tier) > 0 {
 				list = append(list, tier)
 			}

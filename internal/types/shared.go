@@ -2,7 +2,9 @@ package types
 
 import (
 	"net"
+	"net/url"
 	"sync/atomic"
+	"time"
 )
 
 type Stats struct {
@@ -42,4 +44,13 @@ type File struct {
 
 	Md5Sum *string
 	Attr   *string
+}
+
+type Tracker struct {
+	Url *url.URL
+	Tier int
+	Fails int
+	Interval time.Duration
+	MinInterval time.Duration
+	NextAnnounce time.Time
 }

@@ -1,15 +1,14 @@
 package torrent
 
 import (
-	"net/url"
 	"time"
 
 	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
 type Torrent struct {
-	Announce     *url.URL
-	AnnounceList [][]*url.URL
+	Announce     *types.Tracker
+	AnnounceList [][]*types.Tracker
 
 	CreationDate *time.Time
 	Comment      *string
