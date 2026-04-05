@@ -169,7 +169,7 @@ func parseIpv6Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 		}
 
 		ip := net.IP(ipBytes)
-		peers = append(peers, types.PeerAddress{IP: ip, Port: port})
+		peers = append(peers, types.NewPeerAddress(ip, port))
 	}
 
 	return peers, nil
@@ -187,7 +187,7 @@ func parseIpv4Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 		}
 
 		ip := net.IP(ipBytes)
-		peers = append(peers, types.PeerAddress{IP: ip, Port: port})
+		peers = append(peers, types.NewPeerAddress(ip, port))
 	}
 
 	return peers, nil

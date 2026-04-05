@@ -22,10 +22,8 @@ type Session struct {
 	pieceManager   *piece.Manager
 	diskManager    *disk.Manager
 
-	peerChan          chan types.PeerAddress
-	responseBlockChan chan types.BlockResponse
-	requestBlockChan  chan types.BlockRequest
-	writeChan         chan types.DiskWrite
+	peerChan  chan types.PeerAddress
+	writeChan chan types.DiskWrite
 }
 
 func generatePeerID() [20]byte {
@@ -46,12 +44,10 @@ func NewSession(data *Torrent, port uint16) *Session {
 	stats.Uploaded.Store(0)
 
 	session := &Session{
-		Stats:             stats,
-		peerID:            generatePeerID(),
-		peerChan:          make(chan types.PeerAddress, 200),
-		responseBlockChan: make(chan types.BlockResponse, 1000),
-		requestBlockChan:  make(chan types.BlockRequest, 500),
-		writeChan:         make(chan types.DiskWrite, 50),
+		Stats:     stats,
+		peerID:    generatePeerID(),
+		peerChan:  make(chan types.PeerAddress, 200),
+		writeChan: make(chan types.DiskWrite, 50),
 	}
 
 	session.trackerManager = tracker.NewManager(
@@ -65,20 +61,19 @@ func NewSession(data *Torrent, port uint16) *Session {
 			Port:         port,
 		})
 
-	session.peerManager = peer.NewManager(stats, peer.Config{
-		InfoHash:          data.InfoHash,
-		PeerID:            session.peerID,
-		PeerChan:          session.peerChan,
-		ResponseBlockChan: session.responseBlockChan,
-		RequestBlockChan:  session.requestBlockChan,
-	})
 	session.pieceManager = piece.NewManager(piece.Config{
-		ResponseBlockChan: session.responseBlockChan,
-		RequestBlockChan:  session.requestBlockChan,
-		WriteChan:         session.writeChan,
-		PieceLength:       data.Info.PieceLength,
-		Pieces:            data.Info.Pieces,
-		TotalLength:       data.TotalLength,
+		WriteChan:   session.writeChan,
+		PieceLength: data.Info.PieceLength,
+		Pieces:      data.Info.Pieces,
+		TotalLength: data.TotalLength,
+	})
+
+	session.peerManager = peer.NewManager(stats, peer.Config{
+		InfoHash:           data.InfoHash,
+		PeerID:             session.peerID,
+		PeerChan:           session.peerChan,
+		PieceManager:       session.pieceManager,
+		PieceCompletedChan: session.pieceManager.PieceCompletedChan,
 	})
 	session.diskManager = disk.NewManager(disk.Config{
 		WriteChan:   session.writeChan,

@@ -3,6 +3,7 @@ package types
 import (
 	"net"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -16,6 +17,25 @@ type Stats struct {
 type PeerAddress struct {
 	IP   net.IP
 	Port uint16
+}
+
+func NewPeerAddress(ip net.IP, port uint16) PeerAddress {
+	if ipv4 := ip.To4(); ipv4 != nil {
+		ip = append(net.IP(nil), ipv4...)
+	} else if ipv6 := ip.To16(); ipv6 != nil {
+		ip = append(net.IP(nil), ipv6...)
+	} else {
+		ip = append(net.IP(nil), ip...)
+	}
+
+	return PeerAddress{
+		IP:   ip,
+		Port: port,
+	}
+}
+
+func (p PeerAddress) String() string {
+	return net.JoinHostPort(p.IP.String(), strconv.FormatUint(uint64(p.Port), 10))
 }
 
 type BlockRequest struct {
@@ -47,10 +67,10 @@ type File struct {
 }
 
 type Tracker struct {
-	Url *url.URL
-	Tier int
-	Fails int
-	Interval time.Duration
-	MinInterval time.Duration
+	Url          *url.URL
+	Tier         int
+	Fails        int
+	Interval     time.Duration
+	MinInterval  time.Duration
 	NextAnnounce time.Time
 }

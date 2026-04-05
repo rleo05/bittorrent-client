@@ -8,23 +8,25 @@ import (
 )
 
 type Config struct {
-	ResponseBlockChan chan types.BlockResponse
-	RequestBlockChan  chan types.BlockRequest
-	WriteChan         chan types.DiskWrite
-	PieceLength       uint64
-	Pieces            []byte
-	TotalLength       uint64
+	WriteChan   chan types.DiskWrite
+	PieceLength uint64
+	Pieces      []byte
+	TotalLength uint64
 }
 
 type Manager struct {
 	Config
+	PieceCompletedChan chan int
 }
 
 func NewManager(cfg Config) *Manager {
-	return &Manager{Config: cfg}
+	return &Manager{
+		Config:             cfg,
+		PieceCompletedChan: make(chan int, 100),
+	}
 }
 
 func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
-	
+
 }

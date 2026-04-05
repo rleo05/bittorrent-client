@@ -53,7 +53,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ln, err := net.Listen("tcp", ":8080")
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Fatal(err)
 	}

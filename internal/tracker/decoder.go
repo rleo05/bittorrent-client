@@ -98,7 +98,7 @@ func parseCompactPeers(data []byte) ([]types.PeerAddress, error) {
 	for i := 0; i < len(data); i += 6 {
 		ip := net.IP(data[i : i+4])
 		port := binary.BigEndian.Uint16(data[i+4 : i+6])
-		peersList = append(peersList, types.PeerAddress{IP: ip, Port: port})
+		peersList = append(peersList, types.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil
@@ -113,7 +113,7 @@ func parseCompactPeers6(data []byte) ([]types.PeerAddress, error) {
 	for i := 0; i < len(data); i += 18 {
 		ip := net.IP(data[i : i+16])
 		port := binary.BigEndian.Uint16(data[i+16 : i+18])
-		peersList = append(peersList, types.PeerAddress{IP: ip, Port: port})
+		peersList = append(peersList, types.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil
@@ -144,10 +144,7 @@ func parseDictPeers(list []any) ([]types.PeerAddress, error) {
 
 		port := uint16(portRaw)
 
-		peersList = append(peersList, types.PeerAddress{
-			IP:   ip,
-			Port: port,
-		})
+		peersList = append(peersList, types.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil
