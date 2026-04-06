@@ -74,3 +74,46 @@ type Tracker struct {
 	MinInterval  time.Duration
 	NextAnnounce time.Time
 }
+
+type PieceStatus int
+
+const (
+	Pending PieceStatus = iota
+	Complete
+	Verified
+	Writing
+	Stored
+)
+
+type PieceState struct {
+	Index int
+	Length int
+	Status PieceStatus
+	Hash [20]byte
+	Data []byte
+	Blocks []Block
+	ReceivedBlocks int
+	RequestedBlocks int
+}
+
+type BlockStatus int
+
+const (
+	Missing BlockStatus = iota
+	Requested
+	Received
+	
+)
+
+type Block struct {
+	PieceIndex int
+	Offset int
+	Size int
+	Status BlockStatus
+	RequestedBy PeerAddress 
+}
+
+type BlockKey struct {
+	PieceIndex int
+	Offset int
+}

@@ -16,13 +16,23 @@ type Config struct {
 
 type Manager struct {
 	Config
+
+	bitfield []byte
+	totalPieces int
+	pieces []types.PieceState
+	inFlightBlocks map[types.BlockKey]struct{}
+	
 	PieceCompletedChan chan int
 }
 
 func NewManager(cfg Config) *Manager {
+	totalPieces := len(cfg.Pieces) / 20
 	return &Manager{
 		Config:             cfg,
 		PieceCompletedChan: make(chan int, 100),
+		bitfield: make([]byte, (totalPieces + 7) / 8),
+		totalPieces: totalPieces,
+		inFlightBlocks: make(map[types.BlockKey]struct{}),
 	}
 }
 

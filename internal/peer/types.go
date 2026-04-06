@@ -4,6 +4,7 @@ import (
 	"net"
 
 	"github.com/rleo05/bittorrent-client/internal/piece"
+	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
 type MessageStatus int
@@ -31,10 +32,11 @@ type PeerSession struct {
 	peerChoking    bool
 	peerInterested bool
 
+	inFlightRequests map[types.BlockKey]struct{}
+
 	msgChan      chan PeerMessage
 	commandChan  chan sessionCommand
 	outboundChan chan []byte
-	errChan      chan error
 }
 
 type PeerMessage struct {
