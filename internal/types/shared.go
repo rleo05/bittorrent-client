@@ -110,10 +110,14 @@ type Block struct {
 	Offset int
 	Size int
 	Status BlockStatus
-	RequestedBy PeerAddress 
 }
 
-type BlockKey struct {
+type InFlightKey struct {
 	PieceIndex int
 	Offset int
+}
+
+type InFlightValue struct {
+	SessionID int
+	RequestedAt time.Time
 }

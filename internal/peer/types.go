@@ -32,7 +32,7 @@ type PeerSession struct {
 	peerChoking    bool
 	peerInterested bool
 
-	inFlightRequests map[types.BlockKey]struct{}
+	inFlightRequests map[types.InFlightKey]struct{}
 
 	msgChan      chan PeerMessage
 	commandChan  chan sessionCommand

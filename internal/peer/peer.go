@@ -34,14 +34,18 @@ type Manager struct {
 	stats *types.Stats
 	Config
 	mu       sync.Mutex
-	sessions map[*PeerSession]struct{}
+	sessions map[int]*PeerSession
 }
+
+var (
+	counterSessionID int = 1
+)
 
 func NewManager(stats *types.Stats, cfg Config) *Manager {
 	return &Manager{
 		stats:    stats,
 		Config:   cfg,
-		sessions: make(map[*PeerSession]struct{}),
+		sessions: make(map[int]*PeerSession),
 	}
 }
 
@@ -95,14 +99,14 @@ func (m *Manager) handlePeer(ctx context.Context, peer types.PeerAddress) {
 		amInterested:   false,
 		peerChoking:    true,
 		peerInterested: false,
-		inFlightRequests: make(map[types.BlockKey]struct{}, maxInFlightRequests),
+		inFlightRequests: make(map[types.InFlightKey]struct{}, maxInFlightRequests),
 		msgChan:        make(chan PeerMessage),
 		commandChan:    make(chan sessionCommand, 16),
 		outboundChan:   make(chan []byte, 16),
 	}
 
-	m.registerSession(session)
-	defer m.unregisterSession(session)
+	sessionID := m.registerSession(session)
+	defer m.unregisterSession(sessionID)
 
 	session.Start(ctx)
 }
@@ -257,24 +261,30 @@ func (p *PeerSession) stateMachine(ctx context.Context) {
 	}
 }
 
-func (m *Manager) registerSession(session *PeerSession) {
+func (m *Manager) registerSession(session *PeerSession) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.sessions[session] = struct{}{}
+	sessionID := counterSessionID
+
+	m.sessions[counterSessionID] = session
+
+	counterSessionID++
+
+	return sessionID
 }
 
-func (m *Manager) unregisterSession(session *PeerSession) {
+func (m *Manager) unregisterSession(sessionID int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.sessions, session)
+	delete(m.sessions, sessionID)
 }
 
 func (m *Manager) broadcastHave(pieceIndex int) {
 	m.mu.Lock()
 	sessions := make([]*PeerSession, 0, len(m.sessions))
-	for session := range m.sessions {
+	for _, session := range m.sessions {
 		sessions = append(sessions, session)
 	}
 	m.mu.Unlock()
