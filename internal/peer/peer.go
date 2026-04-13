@@ -3,7 +3,6 @@ package peer
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -18,8 +17,7 @@ import (
 const (
 	peerHandshakeTimeout   = 15 * time.Second
 	peerHandshakeIOTimeout = 10 * time.Second
-
-	maxInFlightRequests = 5
+	protocolName           = "BitTorrent protocol"
 )
 
 type Config struct {
@@ -90,20 +88,7 @@ func (m *Manager) handlePeer(ctx context.Context, peer types.PeerAddress) {
 	}
 	defer conn.Close()
 
-	session := &PeerSession{
-		conn:           conn,
-		address:        peer.String(),
-		bitfield:       nil,
-		pieceManager:   m.PieceManager,
-		amChoking:      true,
-		amInterested:   false,
-		peerChoking:    true,
-		peerInterested: false,
-		inFlightRequests: make(map[types.InFlightKey]struct{}, maxInFlightRequests),
-		msgChan:        make(chan PeerMessage),
-		commandChan:    make(chan sessionCommand, 16),
-		outboundChan:   make(chan []byte, 16),
-	}
+	session := newSession(conn, peer.String(), m.PieceManager)
 
 	sessionID := m.registerSession(session)
 	defer m.unregisterSession(sessionID)
@@ -116,7 +101,6 @@ func (m *Manager) doHandshake(ctx context.Context, peer types.PeerAddress) (net.
 	defer cancel()
 
 	address := peer.String()
-	protocolName := "BitTorrent protocol"
 	log.Printf("peer connection started: peer=%s", address)
 
 	dialer := net.Dialer{Timeout: peerHandshakeTimeout}
@@ -170,97 +154,6 @@ func (m *Manager) doHandshake(ctx context.Context, peer types.PeerAddress) (net.
 	return conn, nil
 }
 
-func (s *PeerSession) Start(ctx context.Context) {
-	sessionCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		if err := s.messageReader(); err != nil {
-			log.Printf("peer session stopped: peer=%s error=%v", s.address, err)
-			cancel()
-		}
-	}()
-	go func() {
-		if err := s.messageWriter(sessionCtx); err != nil {
-			log.Printf("peer session stopped: peer=%s error=%v", s.address, err)
-			cancel()
-		}
-	}()
-
-	s.stateMachine(sessionCtx)
-}
-
-func (s *PeerSession) messageReader() error {
-	for {
-		s.conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
-
-		lengthBuf := make([]byte, 4)
-		_, err := io.ReadFull(s.conn, lengthBuf)
-		if err != nil {
-			return fmt.Errorf("read message length from peer %s: %w", s.address, err)
-		}
-
-		msgLength := binary.BigEndian.Uint32(lengthBuf)
-
-		if msgLength == 0 {
-			log.Printf("peer keepalive received: peer=%s", s.address)
-			continue
-		}
-
-		msgBuf := make([]byte, msgLength)
-		_, err = io.ReadFull(s.conn, msgBuf)
-		if err != nil {
-			return fmt.Errorf("read message payload from peer %s: length=%d error=%w", s.address, msgLength, err)
-		}
-
-		messageStatus := MessageStatus(msgBuf[0])
-		payload := msgBuf[1:]
-
-		s.msgChan <- PeerMessage{messageStatus: messageStatus, payload: payload}
-	}
-}
-
-func (s *PeerSession) messageWriter(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case payload := <-s.outboundChan:
-			s.conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-			_, err := s.conn.Write(payload)
-			if err != nil {
-				return fmt.Errorf("write message to peer %s: %w", s.address, err)
-			}
-		}
-	}
-}
-
-func (p *PeerSession) stateMachine(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg := <-p.msgChan:
-			switch msg.messageStatus {
-			case Choke:
-			case Unchoke:
-			case Interested:
-			case NotInterested:
-			case Have:
-			case Bitfield:
-			case Request:
-			case Piece:
-			case Cancel:
-			}
-		case command := <-p.commandChan:
-			switch command.commandType {
-			case sessionCommandSendHave:
-				p.enqueueHave(command.pieceIndex)
-			}
-		}
-	}
-}
-
 func (m *Manager) registerSession(session *PeerSession) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -289,20 +182,11 @@ func (m *Manager) broadcastHave(pieceIndex int) {
 	}
 	m.mu.Unlock()
 
-	command := sessionCommand{commandType: sessionCommandSendHave, pieceIndex: pieceIndex}
+	command := sessionCommand{commandType: sendHave, pieceIndex: pieceIndex}
 	for _, session := range sessions {
 		select {
 		case session.commandChan <- command:
 		default:
 		}
 	}
-}
-
-func (s *PeerSession) enqueueHave(pieceIndex int) {
-	payload := make([]byte, 9)
-	binary.BigEndian.PutUint32(payload[0:4], 5)
-	payload[4] = byte(Have)
-	binary.BigEndian.PutUint32(payload[5:9], uint32(pieceIndex))
-
-	s.outboundChan <- payload
 }

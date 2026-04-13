@@ -21,6 +21,31 @@ const (
 	Cancel
 )
 
+func (m MessageStatus) String() string {
+	switch m {
+	case Choke:
+		return "choke"
+	case Unchoke:
+		return "unchoke"
+	case Interested:
+		return "interested"
+	case NotInterested:
+		return "not_interested"
+	case Have:
+		return "have"
+	case Bitfield:
+		return "bitfield"
+	case Request:
+		return "request"
+	case Piece:
+		return "piece"
+	case Cancel:
+		return "cancel"
+	default:
+		return "unknown"
+	}
+}
+
 type PeerSession struct {
 	conn         net.Conn
 	address      string
@@ -32,7 +57,9 @@ type PeerSession struct {
 	peerChoking    bool
 	peerInterested bool
 
-	inFlightRequests map[types.InFlightKey]struct{}
+	seenFirstMessage bool
+
+	inFlightRequests map[types.InFlightKey]int
 
 	msgChan      chan PeerMessage
 	commandChan  chan sessionCommand
@@ -47,7 +74,7 @@ type PeerMessage struct {
 type sessionCommandType int
 
 const (
-	sessionCommandSendHave sessionCommandType = iota
+	sendHave sessionCommandType = iota
 )
 
 type sessionCommand struct {

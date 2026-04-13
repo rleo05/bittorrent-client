@@ -87,9 +87,8 @@ func NewSession(data *Torrent, port uint16) *Session {
 }
 
 func (s *Session) Start(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(4)
+	wg.Add(3)
 	go s.trackerManager.Run(ctx, wg)
 	go s.peerManager.Run(ctx, wg)
-	go s.pieceManager.Run(ctx, wg)
 	go s.diskManager.Run(ctx, wg)
 }
