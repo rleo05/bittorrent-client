@@ -93,6 +93,8 @@ func (m *Manager) initializePieces() {
 }
 
 func (m *Manager) HasInterestingPieces(bitfield []byte) bool {
+	if bitfield == nil { return false }
+
 	for i := range bitfield {
 		if (bitfield[i] &^ m.bitfield[i]) != 0 { return true }
 	}
@@ -118,4 +120,8 @@ func (m *Manager) IsPeerBitfieldValid(bitfield []byte) bool {
 
 func (m *Manager) GetEmptyBitfield() []byte {
 	return make([]byte, len(m.bitfield))
+}
+
+func (m *Manager) ReleaseInFlightRequest(key types.InFlightKey) {
+	delete(m.inFlightBlocks, key)
 }

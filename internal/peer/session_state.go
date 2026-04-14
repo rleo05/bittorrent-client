@@ -6,6 +6,8 @@ import (
 )
 
 func (s *PeerSession) stateMachine(ctx context.Context) {
+	defer s.releaseInFlightRequests()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -31,9 +33,9 @@ func (s *PeerSession) handleMessage(msg PeerMessage) error {
 
 	switch msg.messageStatus {
 	case Choke:
-		return nil
+		return s.onChoke(msg)
 	case Unchoke:
-		return nil
+		return s.onUnchoke(msg)
 	case Interested:
 		return nil
 	case NotInterested:
@@ -80,6 +82,30 @@ func (s *PeerSession) enqueueInterested() {
 	s.outboundChan <- payload
 }
 
+func (s *PeerSession) enqueueNotInterested() {
+	payload := make([]byte, 5)
+	binary.BigEndian.PutUint32(payload[0:4], 1)
+	payload[4] = byte(NotInterested)
+
+	s.outboundChan <- payload
+}
+
+func (s *PeerSession) onChoke(msg PeerMessage) error {
+	s.peerChoking = true
+
+	if len(s.inFlightRequests) > 0 {
+		s.releaseInFlightRequests()
+	}
+
+	return nil
+}
+
+func (s *PeerSession) onUnchoke(msg PeerMessage) error {
+	s.peerChoking = false
+	s.fillRequests()
+	return nil
+}
+
 func (s *PeerSession) onHave(msg PeerMessage) error {
 	if len(msg.payload) != 4 {
 		return s.peerErrorf("invalid have message length=%d", len(msg.payload))
@@ -100,7 +126,8 @@ func (s *PeerSession) onHave(msg PeerMessage) error {
 
 	s.bitfield[byteIndex] |= byte(1 << (7 - bitIndex))
 
-	s.markPeerAsInteresting()
+	s.toggleInterest()
+	s.fillRequests()
 	return nil
 }
 
@@ -115,15 +142,37 @@ func (s *PeerSession) onBitfield(msg PeerMessage) error {
 
 	s.bitfield = msg.payload
 
-	s.markPeerAsInteresting()
+	s.toggleInterest()
+	s.fillRequests()
 	return nil
 }
 
-func (s *PeerSession) markPeerAsInteresting() {
-	if s.amInterested || !s.pieceManager.HasInterestingPieces(s.bitfield) {
+func (s *PeerSession) toggleInterest() {
+	hasInterest := s.pieceManager.HasInterestingPieces(s.bitfield)
+
+	if !s.amInterested && hasInterest {
+		s.amInterested = true
+		s.enqueueInterested()
 		return
 	}
 
-	s.amInterested = true
-	s.enqueueInterested()
+	if s.amInterested && !hasInterest {
+		s.amInterested = false
+		s.enqueueNotInterested()
+	}
+}
+
+func (s *PeerSession) fillRequests() {
+	if !s.amInterested || s.peerChoking {
+		return
+	}
+
+	
+}
+
+func (s *PeerSession) releaseInFlightRequests() {
+	for k := range s.inFlightRequests {
+		s.pieceManager.ReleaseInFlightRequest(k)
+		delete(s.inFlightRequests, k)
+	}
 }
