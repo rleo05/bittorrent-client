@@ -100,7 +100,6 @@ type BlockStatus int
 
 const (
 	Missing BlockStatus = iota
-	Requested
 	Received
 	
 )
@@ -108,7 +107,7 @@ const (
 type Block struct {
 	PieceIndex int
 	Offset int
-	Size int
+	Length int
 	Status BlockStatus
 }
 
@@ -118,6 +117,6 @@ type InFlightKey struct {
 }
 
 type InFlightValue struct {
-	SessionID int
+	SessionID int64
 	RequestedAt time.Time
 }

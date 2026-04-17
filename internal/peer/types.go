@@ -47,6 +47,7 @@ func (m MessageStatus) String() string {
 }
 
 type PeerSession struct {
+	sessionID 	 int64
 	conn         net.Conn
 	address      string
 	bitfield     []byte

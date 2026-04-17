@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/rleo05/bittorrent-client/internal/piece"
@@ -15,6 +16,10 @@ import (
 
 const (
 	maxInFlightRequests = 5
+)
+
+var (
+	sessionID atomic.Int64
 )
 
 func newSession(conn net.Conn, address string, pieceManager *piece.Manager) *PeerSession {
@@ -32,6 +37,7 @@ func newSession(conn net.Conn, address string, pieceManager *piece.Manager) *Pee
 		msgChan:          make(chan PeerMessage, 32),
 		commandChan:      make(chan sessionCommand, 16),
 		outboundChan:     make(chan []byte, 16),
+		sessionID: sessionID.Add(1),
 	}
 }
 

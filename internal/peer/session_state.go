@@ -167,7 +167,7 @@ func (s *PeerSession) fillRequests() {
 		return
 	}
 
-	
+	s.pieceManager.FillPeerInFlightRequests(s.bitfield, maxInFlightRequests, s.sessionID)
 }
 
 func (s *PeerSession) releaseInFlightRequests() {
