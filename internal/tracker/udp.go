@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context) (*TrackerResponse, error) {
@@ -134,7 +134,7 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 
 	response := &TrackerResponse{interval: interval}
 
-	var peers []types.PeerAddress
+	var peers []shared.PeerAddress
 	if isIpv6 {
 		if len(rawPeers)%18 != 0 {
 			return response, nil
@@ -156,8 +156,8 @@ func (m *Manager) handleUdpRequest(request *AnnounceRequest, ctx context.Context
 	return response, nil
 }
 
-func parseIpv6Peers(rawPeers []byte) ([]types.PeerAddress, error) {
-	peers := make([]types.PeerAddress, 0, len(rawPeers)/18)
+func parseIpv6Peers(rawPeers []byte) ([]shared.PeerAddress, error) {
+	peers := make([]shared.PeerAddress, 0, len(rawPeers)/18)
 
 	for i := 0; i < len(rawPeers); i += 18 {
 		ipBytes := rawPeers[i : i+16]
@@ -169,14 +169,14 @@ func parseIpv6Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 		}
 
 		ip := net.IP(ipBytes)
-		peers = append(peers, types.NewPeerAddress(ip, port))
+		peers = append(peers, shared.NewPeerAddress(ip, port))
 	}
 
 	return peers, nil
 }
 
-func parseIpv4Peers(rawPeers []byte) ([]types.PeerAddress, error) {
-	peers := make([]types.PeerAddress, 0, len(rawPeers)/6)
+func parseIpv4Peers(rawPeers []byte) ([]shared.PeerAddress, error) {
+	peers := make([]shared.PeerAddress, 0, len(rawPeers)/6)
 
 	for i := 0; i < len(rawPeers); i += 6 {
 		ipBytes := rawPeers[i : i+4]
@@ -187,7 +187,7 @@ func parseIpv4Peers(rawPeers []byte) ([]types.PeerAddress, error) {
 		}
 
 		ip := net.IP(ipBytes)
-		peers = append(peers, types.NewPeerAddress(ip, port))
+		peers = append(peers, shared.NewPeerAddress(ip, port))
 	}
 
 	return peers, nil

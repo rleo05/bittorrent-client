@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/rleo05/bittorrent-client/internal/piece"
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 const (
@@ -33,11 +33,11 @@ func newSession(conn net.Conn, address string, pieceManager *piece.Manager) *Pee
 		peerChoking:      true,
 		peerInterested:   false,
 		seenFirstMessage: false,
-		inFlightRequests: make(map[types.InFlightKey]int, maxInFlightRequests),
+		inFlightRequests: make(map[shared.InFlightKey]int, maxInFlightRequests),
 		msgChan:          make(chan PeerMessage, 32),
 		commandChan:      make(chan sessionCommand, 16),
 		outboundChan:     make(chan []byte, 16),
-		sessionID: sessionID.Add(1),
+		sessionID:        sessionID.Add(1),
 	}
 }
 

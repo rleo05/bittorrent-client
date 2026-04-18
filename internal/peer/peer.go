@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/rleo05/bittorrent-client/internal/piece"
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 const (
-	peerHandshakeTimeout   = 15 * time.Second
+	peerHandshakeTimeout   = 5 * time.Second
 	peerHandshakeIOTimeout = 10 * time.Second
 	protocolName           = "BitTorrent protocol"
 )
@@ -23,13 +23,13 @@ const (
 type Config struct {
 	InfoHash           [20]byte
 	PeerID             [20]byte
-	PeerChan           chan types.PeerAddress
+	PeerChan           chan shared.PeerAddress
 	PieceManager       *piece.Manager
 	PieceCompletedChan <-chan int
 }
 
 type Manager struct {
-	stats *types.Stats
+	stats *shared.Stats
 	Config
 	mu       sync.Mutex
 	sessions map[int]*PeerSession
@@ -39,7 +39,7 @@ var (
 	counterSessionID int = 1
 )
 
-func NewManager(stats *types.Stats, cfg Config) *Manager {
+func NewManager(stats *shared.Stats, cfg Config) *Manager {
 	return &Manager{
 		stats:    stats,
 		Config:   cfg,
@@ -71,7 +71,7 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 			maxPeers <- struct{}{}
 
-			go func(peer types.PeerAddress) {
+			go func(peer shared.PeerAddress) {
 				defer func() { <-maxPeers }()
 
 				m.handlePeer(ctx, peer)
@@ -80,7 +80,7 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (m *Manager) handlePeer(ctx context.Context, peer types.PeerAddress) {
+func (m *Manager) handlePeer(ctx context.Context, peer shared.PeerAddress) {
 	conn, err := m.doHandshake(ctx, peer)
 	if err != nil {
 		log.Printf("peer handshake failed: peer=%s error=%v", peer.String(), err)
@@ -96,7 +96,7 @@ func (m *Manager) handlePeer(ctx context.Context, peer types.PeerAddress) {
 	session.Start(ctx)
 }
 
-func (m *Manager) doHandshake(ctx context.Context, peer types.PeerAddress) (net.Conn, error) {
+func (m *Manager) doHandshake(ctx context.Context, peer shared.PeerAddress) (net.Conn, error) {
 	handshakeCtx, cancel := context.WithTimeout(ctx, peerHandshakeTimeout)
 	defer cancel()
 

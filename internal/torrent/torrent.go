@@ -3,12 +3,12 @@ package torrent
 import (
 	"time"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 type Torrent struct {
-	Announce     *types.Tracker
-	AnnounceList [][]*types.Tracker
+	Announce     *shared.Tracker
+	AnnounceList [][]*shared.Tracker
 
 	CreationDate *time.Time
 	Comment      *string
@@ -36,7 +36,7 @@ type Info struct {
 	Md5Sum  *string
 
 	Length *uint64
-	Files  *[]types.File
+	Files  *[]shared.File
 }
 
 type Node struct {

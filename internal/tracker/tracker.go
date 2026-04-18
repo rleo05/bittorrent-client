@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 type Manager struct {
-	*types.Stats
+	*shared.Stats
 	Config
 	httpClient *http.Client
 	udpEvents  map[string]uint32
@@ -21,7 +21,7 @@ type Manager struct {
 	udpKeysMu  sync.RWMutex
 }
 
-func NewManager(stats *types.Stats, cfg Config) *Manager {
+func NewManager(stats *shared.Stats, cfg Config) *Manager {
 	return &Manager{
 		Stats:  stats,
 		Config: cfg,
@@ -75,7 +75,7 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*types.Tracker, event string) (time.Duration, bool) {
+func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*shared.Tracker, event string) (time.Duration, bool) {
 	request := m.buildAnnounceRequest(event)
 	var nextAnnounce time.Duration
 
@@ -162,8 +162,8 @@ func (m *Manager) getUDPKey(host string) uint32 {
 	return key
 }
 
-func (m *Manager) getTrackerList() [][]*types.Tracker {
-	trackerList := [][]*types.Tracker{{m.Announce}}
+func (m *Manager) getTrackerList() [][]*shared.Tracker {
+	trackerList := [][]*shared.Tracker{{m.Announce}}
 	if len(m.AnnounceList) > 0 {
 		trackerList = m.AnnounceList
 	}
@@ -182,7 +182,7 @@ func (m *Manager) buildAnnounceRequest(event string) *AnnounceRequest {
 	}
 }
 
-func getNextAnnounceDelay(trackerList [][]*types.Tracker) time.Duration {
+func getNextAnnounceDelay(trackerList [][]*shared.Tracker) time.Duration {
 	earliestTime := trackerList[0][0].NextAnnounce
 
 	for _, tier := range trackerList {
@@ -201,7 +201,7 @@ func getNextAnnounceDelay(trackerList [][]*types.Tracker) time.Duration {
 	return nextAnnounce
 }
 
-func canAnnounce(t *types.Tracker) bool {
+func canAnnounce(t *shared.Tracker) bool {
 	return !time.Now().Before(t.NextAnnounce)
 }
 

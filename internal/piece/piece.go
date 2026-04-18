@@ -1,10 +1,12 @@
 package piece
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 const (
@@ -13,7 +15,7 @@ const (
 )
 
 type Config struct {
-	WriteChan   chan types.DiskWrite
+	WriteChan   chan shared.DiskWrite
 	PieceLength uint64
 	Pieces      []byte
 	TotalLength uint64
@@ -24,9 +26,9 @@ type Manager struct {
 
 	bitfield        []byte
 	TotalPieces     int
-	pieces          []*types.PieceState
-	inFlightBlocks  map[types.InFlightKey]*types.InFlightValue
-	activePieces    map[int]*types.PieceState
+	pieces          []*shared.PieceState
+	inFlightBlocks  map[shared.InFlightKey]*shared.InFlightValue
+	activePieces    map[int]*shared.PieceState
 	activePiecesOrd []int
 
 	PieceCompletedChan chan int
@@ -41,8 +43,8 @@ func NewManager(cfg Config) *Manager {
 		PieceCompletedChan: make(chan int, 100),
 		bitfield:           make([]byte, (totalPieces+7)/8),
 		TotalPieces:        totalPieces,
-		inFlightBlocks:     make(map[types.InFlightKey]*types.InFlightValue),
-		activePieces:       make(map[int]*types.PieceState, 30),
+		inFlightBlocks:     make(map[shared.InFlightKey]*shared.InFlightValue),
+		activePieces:       make(map[int]*shared.PieceState, 30),
 	}
 
 	manager.initializePieces()
@@ -51,7 +53,7 @@ func NewManager(cfg Config) *Manager {
 }
 
 func (m *Manager) initializePieces() {
-	pieces := make([]*types.PieceState, m.TotalPieces)
+	pieces := make([]*shared.PieceState, m.TotalPieces)
 	for i := 0; i < m.TotalPieces; i++ {
 		currentPieceLength := int(m.PieceLength)
 		if i == m.TotalPieces-1 {
@@ -61,18 +63,18 @@ func (m *Manager) initializePieces() {
 			}
 		}
 
-		var blocks []types.Block
+		var blocks []*shared.Block
 		offset := 0
 		bytesLeft := currentPieceLength
 
 		for bytesLeft > 0 {
 			blockSize := min(bytesLeft, maxBlockSize)
 
-			blocks = append(blocks, types.Block{
+			blocks = append(blocks, &shared.Block{
 				PieceIndex: i,
 				Offset:     offset,
 				Length:     blockSize,
-				Status:     types.Missing,
+				Status:     shared.Missing,
 			})
 
 			offset += blockSize
@@ -84,15 +86,16 @@ func (m *Manager) initializePieces() {
 		var hash [20]byte
 		copy(hash[:], m.Pieces[hashStart:hashEnd])
 
-		piece := &types.PieceState{
+		piece := &shared.PieceState{
 			Index:           i,
 			Length:          currentPieceLength,
-			Status:          types.Pending,
+			Status:          shared.Pending,
 			Hash:            hash,
 			Data:            nil,
 			Blocks:          blocks,
 			ReceivedBlocks:  0,
 			RequestedBlocks: 0,
+			NeededBlocks:    len(blocks),
 		}
 
 		pieces[i] = piece
@@ -135,18 +138,18 @@ func (m *Manager) GetEmptyBitfield() []byte {
 	return make([]byte, len(m.bitfield))
 }
 
-func (m *Manager) ReleaseInFlightRequest(key types.InFlightKey) {
+func (m *Manager) ReleaseInFlightRequest(key shared.InFlightKey) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.releaseInFlightRequestLocked(key, true)
 }
 
-func (m *Manager) FillPeerInFlightRequests(bitfield []byte, maxInFlightRequests int, sessionID int64) []types.BlockRequest {
+func (m *Manager) FillPeerInFlightRequests(bitfield []byte, maxInFlightRequests int, sessionID int64) []shared.BlockRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	blocks := make([]types.BlockRequest, 0, maxInFlightRequests)
+	blocks := make([]shared.BlockRequest, 0, maxInFlightRequests)
 
 	for _, pieceIndex := range m.activePiecesOrd {
 		piece := m.activePieces[pieceIndex]
@@ -170,7 +173,7 @@ func (m *Manager) FillPeerInFlightRequests(bitfield []byte, maxInFlightRequests 
 	}
 
 	for pieceIndex, p := range m.pieces {
-		if p.Status != types.Pending {
+		if p.Status != shared.Pending {
 			continue
 		}
 
@@ -213,32 +216,32 @@ func (m *Manager) hasPieceByIndex(bitfield []byte, i int) bool {
 	return currByte&(1<<(7-bitIndex)) != 0
 }
 
-func (m *Manager) createRequestBlock(b types.Block, sessionID int64) (types.BlockRequest, bool) {
-	inFlightKey := types.InFlightKey{
+func (m *Manager) createRequestBlock(b *shared.Block, sessionID int64) (shared.BlockRequest, bool) {
+	inFlightKey := shared.InFlightKey{
 		PieceIndex: b.PieceIndex,
 		Offset:     b.Offset,
 	}
 
-	if b.Status == types.Received {
-		return types.BlockRequest{}, false
+	if b.Status == shared.Received {
+		return shared.BlockRequest{}, false
 	}
 
 	if inFlight := m.inFlightBlocks[inFlightKey]; inFlight != nil {
 		if time.Since(inFlight.RequestedAt) < inFlightRequestTimeout {
-			return types.BlockRequest{}, false
+			return shared.BlockRequest{}, false
 		}
 
 		m.releaseInFlightRequestLocked(inFlightKey, false)
 	}
 
-	m.inFlightBlocks[inFlightKey] = &types.InFlightValue{
+	m.inFlightBlocks[inFlightKey] = &shared.InFlightValue{
 		SessionID:   sessionID,
 		RequestedAt: time.Now(),
 	}
 
-	m.pieces[b.PieceIndex].RequestedBlocks++	
+	m.pieces[b.PieceIndex].RequestedBlocks++
 
-	blockRequest := types.BlockRequest{
+	blockRequest := shared.BlockRequest{
 		PieceIndex: b.PieceIndex,
 		Offset:     b.Offset,
 		Length:     uint32(b.Length),
@@ -247,7 +250,7 @@ func (m *Manager) createRequestBlock(b types.Block, sessionID int64) (types.Bloc
 	return blockRequest, true
 }
 
-func (m *Manager) addActivePiece(pieceIndex int, pieceState *types.PieceState) {
+func (m *Manager) addActivePiece(pieceIndex int, pieceState *shared.PieceState) {
 	if _, ok := m.activePieces[pieceIndex]; ok {
 		return
 	}
@@ -273,7 +276,7 @@ func (m *Manager) removeActivePiece(pieceIndex int) {
 	}
 }
 
-func (m *Manager) releaseInFlightRequestLocked(key types.InFlightKey, removeActivePiece bool) {
+func (m *Manager) releaseInFlightRequestLocked(key shared.InFlightKey, removeActivePiece bool) {
 	if _, ok := m.inFlightBlocks[key]; !ok {
 		return
 	}
@@ -281,15 +284,133 @@ func (m *Manager) releaseInFlightRequestLocked(key types.InFlightKey, removeActi
 	delete(m.inFlightBlocks, key)
 
 	piece := m.pieces[key.PieceIndex]
-	
+
 	if piece.RequestedBlocks > 0 {
 		piece.RequestedBlocks--
 	}
 
 	if removeActivePiece &&
-		piece.Status == types.Pending &&
+		piece.Status == shared.Pending &&
 		piece.RequestedBlocks == 0 &&
 		piece.ReceivedBlocks == 0 {
 		m.removeActivePiece(key.PieceIndex)
 	}
+}
+
+func (m *Manager) HandleReceivedBlock(pieceIndex uint32, begin uint32, block []byte) error {
+    m.mu.Lock()
+    
+    piece, storedBlock, err := m.validateBlockLocked(pieceIndex, begin, len(block))
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+
+	if piece == nil || storedBlock == nil {
+		m.mu.Unlock()
+		return nil 
+	}
+
+    if piece.Data == nil {
+        piece.Data = make([]byte, piece.Length)
+    }
+
+    copy(piece.Data[storedBlock.Offset:storedBlock.Offset+storedBlock.Length], block)
+    
+    storedBlock.Status = shared.Received
+    piece.ReceivedBlocks++
+
+    diskWrite := shared.DiskWrite{
+        PieceLength: piece.Length,
+        PieceIndex:  piece.Index,
+        Begin:       storedBlock.Offset,
+        Data:        append([]byte(nil), block...), 
+    }
+
+    var completed bool
+    var completedIndex int
+
+    if piece.ReceivedBlocks == piece.NeededBlocks {
+        if m.validateHashLocked(piece) {
+            byteIndex := piece.Index / 8
+            bitIndex := piece.Index % 8
+            m.bitfield[byteIndex] |= byte(1 << (7 - bitIndex))
+            m.removeActivePiece(piece.Index)
+
+            completedIndex = piece.Index
+            completed = true
+        }
+    }
+
+    m.mu.Unlock() 
+
+    m.WriteChan <- diskWrite
+    
+    if completed {
+        m.PieceCompletedChan <- completedIndex
+    }
+
+    return nil
+}
+
+func (m *Manager) validateBlockLocked(pieceIndex uint32, begin uint32, blockLen int) (*shared.PieceState, *shared.Block, error) {
+	if int(pieceIndex) >= m.TotalPieces {
+		return nil, nil, fmt.Errorf("invalid piece index")
+	}
+
+	piece := m.pieces[int(pieceIndex)]
+	
+	if piece.Status != shared.Pending {
+		return nil, nil, nil
+	}
+
+	if int(begin)+blockLen > piece.Length {
+		return nil, nil, fmt.Errorf("invalid block boundaries: exceeds piece length")
+	}
+
+	blockIndex := int(begin / maxBlockSize)
+	if blockIndex >= len(piece.Blocks) {
+		return nil, nil, fmt.Errorf("invalid block index")
+	}
+
+	storedBlock := piece.Blocks[blockIndex]
+
+	if storedBlock.Offset != int(begin) {
+		return nil, nil, fmt.Errorf("invalid block offset: expected %d, got %d", storedBlock.Offset, begin)
+	}
+
+	if storedBlock.Length != blockLen {
+		return nil, nil, fmt.Errorf("invalid block length: expected %d, got %d", storedBlock.Length, blockLen)
+	}
+
+	if storedBlock.Status != shared.Missing {
+		return nil, nil, nil
+	}
+
+	return piece, storedBlock, nil
+}
+
+func (m *Manager) validateHashLocked(piece *shared.PieceState) bool {
+	if piece.Data == nil || len(piece.Data) != piece.Length {
+		return false
+	}
+
+	receivedHash := sha1.Sum(piece.Data)
+	if receivedHash != piece.Hash {
+		piece.Data = nil
+		for _, b := range piece.Blocks {
+			b.Status = shared.Missing
+		}
+
+		piece.Status = shared.Pending
+		piece.ReceivedBlocks = 0
+		piece.RequestedBlocks = 0
+
+		m.removeActivePiece(piece.Index)
+
+		return false
+	}
+
+	piece.Status = shared.Verified
+	return true
 }

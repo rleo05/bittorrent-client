@@ -1,4 +1,4 @@
-package types
+package shared
 
 import (
 	"net"
@@ -52,7 +52,9 @@ type BlockResponse struct {
 }
 
 type DiskWrite struct {
+	PieceLength int
 	PieceIndex int
+	Begin      int
 	Data       []byte
 }
 
@@ -86,14 +88,15 @@ const (
 )
 
 type PieceState struct {
-	Index int
-	Length int
-	Status PieceStatus
-	Hash [20]byte
-	Data []byte
-	Blocks []Block
-	ReceivedBlocks int
+	Index           int
+	Length          int
+	Status          PieceStatus
+	Hash            [20]byte
+	Data            []byte
+	Blocks          []*Block
+	ReceivedBlocks  int
 	RequestedBlocks int
+	NeededBlocks    int
 }
 
 type BlockStatus int
@@ -101,22 +104,21 @@ type BlockStatus int
 const (
 	Missing BlockStatus = iota
 	Received
-	
 )
 
 type Block struct {
 	PieceIndex int
-	Offset int
-	Length int
-	Status BlockStatus
+	Offset     int
+	Length     int
+	Status     BlockStatus
 }
 
 type InFlightKey struct {
 	PieceIndex int
-	Offset int
+	Offset     int
 }
 
 type InFlightValue struct {
-	SessionID int64
+	SessionID   int64
 	RequestedAt time.Time
 }

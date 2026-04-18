@@ -3,6 +3,8 @@ package peer
 import (
 	"context"
 	"encoding/binary"
+
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 func (s *PeerSession) stateMachine(ctx context.Context) {
@@ -47,7 +49,7 @@ func (s *PeerSession) handleMessage(msg PeerMessage) error {
 	case Request:
 		return nil
 	case Piece:
-		return nil
+		return s.onPiece(msg)
 	case Cancel:
 		return nil
 	default:
@@ -86,6 +88,17 @@ func (s *PeerSession) enqueueNotInterested() {
 	payload := make([]byte, 5)
 	binary.BigEndian.PutUint32(payload[0:4], 1)
 	payload[4] = byte(NotInterested)
+
+	s.outboundChan <- payload
+}
+
+func (s *PeerSession) enqueueRequest(b shared.BlockRequest) {
+	payload := make([]byte, 17)
+	binary.BigEndian.PutUint32(payload[0:4], 13)
+	payload[4] = byte(Request)
+	binary.BigEndian.PutUint32(payload[5:9], uint32(b.PieceIndex))
+	binary.BigEndian.PutUint32(payload[9:13], uint32(b.Offset))
+	binary.BigEndian.PutUint32(payload[13:17], b.Length)
 
 	s.outboundChan <- payload
 }
@@ -147,6 +160,28 @@ func (s *PeerSession) onBitfield(msg PeerMessage) error {
 	return nil
 }
 
+func (s *PeerSession) onPiece(msg PeerMessage) error {
+	if len(msg.payload) < 9 {
+		return s.peerErrorf("invalid piece length")
+	}
+
+	pieceIndex := binary.BigEndian.Uint32(msg.payload[0:4])
+	begin := binary.BigEndian.Uint32(msg.payload[4:8])
+	blockData := msg.payload[8:]
+	key := shared.InFlightKey{PieceIndex: int(pieceIndex), Offset: int(begin)}
+
+	err := s.pieceManager.HandleReceivedBlock(pieceIndex, begin, blockData)
+	if err != nil {
+		return s.peerErrorf(err.Error())
+	}
+
+	delete(s.inFlightRequests, key)
+	s.pieceManager.ReleaseInFlightRequest(key)
+
+	s.fillRequests()
+	return nil
+}
+
 func (s *PeerSession) toggleInterest() {
 	hasInterest := s.pieceManager.HasInterestingPieces(s.bitfield)
 
@@ -167,7 +202,18 @@ func (s *PeerSession) fillRequests() {
 		return
 	}
 
-	s.pieceManager.FillPeerInFlightRequests(s.bitfield, maxInFlightRequests, s.sessionID)
+	availableSlots := maxInFlightRequests - len(s.inFlightRequests)
+	if availableSlots <= 0 {
+		return
+	}
+
+	blockRequets := s.pieceManager.FillPeerInFlightRequests(s.bitfield, availableSlots, s.sessionID)
+
+	for _, b := range blockRequets {
+		key := shared.InFlightKey{PieceIndex: b.PieceIndex, Offset: b.Offset}
+		s.inFlightRequests[key] = int(b.Length)
+		s.enqueueRequest(b)
+	}
 }
 
 func (s *PeerSession) releaseInFlightRequests() {

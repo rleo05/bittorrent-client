@@ -3,15 +3,15 @@ package tracker
 import (
 	"net/url"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 type Config struct {
 	InfoHash     [20]byte
 	PeerID       [20]byte
-	Announce     *types.Tracker
-	AnnounceList [][]*types.Tracker
-	PeerChan     chan types.PeerAddress
+	Announce     *shared.Tracker
+	AnnounceList [][]*shared.Tracker
+	PeerChan     chan shared.PeerAddress
 	Port         uint16
 }
 
@@ -49,7 +49,7 @@ type UDPAnnouncePacket struct {
 }
 
 type TrackerResponse struct {
-	Peers          []types.PeerAddress
+	Peers          []shared.PeerAddress
 	interval       uint32
 	minInterval    uint32
 	trackerID      string

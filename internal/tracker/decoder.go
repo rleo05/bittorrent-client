@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 const (
@@ -78,7 +78,7 @@ func ParseResponse(data map[string]any) (*TrackerResponse, error) {
 	return resp, nil
 }
 
-func parsePeers(raw any) ([]types.PeerAddress, error) {
+func parsePeers(raw any) ([]shared.PeerAddress, error) {
 	switch v := raw.(type) {
 	case []byte:
 		return parseCompactPeers(v)
@@ -89,38 +89,38 @@ func parsePeers(raw any) ([]types.PeerAddress, error) {
 	}
 }
 
-func parseCompactPeers(data []byte) ([]types.PeerAddress, error) {
+func parseCompactPeers(data []byte) ([]shared.PeerAddress, error) {
 	if len(data)%6 != 0 {
 		return nil, fmt.Errorf("compact peers length is not a multiple of 6")
 	}
 
-	peersList := make([]types.PeerAddress, 0, len(data)/6)
+	peersList := make([]shared.PeerAddress, 0, len(data)/6)
 	for i := 0; i < len(data); i += 6 {
 		ip := net.IP(data[i : i+4])
 		port := binary.BigEndian.Uint16(data[i+4 : i+6])
-		peersList = append(peersList, types.NewPeerAddress(ip, port))
+		peersList = append(peersList, shared.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil
 }
 
-func parseCompactPeers6(data []byte) ([]types.PeerAddress, error) {
+func parseCompactPeers6(data []byte) ([]shared.PeerAddress, error) {
 	if len(data)%18 != 0 {
 		return nil, fmt.Errorf("compact peers6 length is not a multiple of 18")
 	}
 
-	peersList := make([]types.PeerAddress, 0, len(data)/18)
+	peersList := make([]shared.PeerAddress, 0, len(data)/18)
 	for i := 0; i < len(data); i += 18 {
 		ip := net.IP(data[i : i+16])
 		port := binary.BigEndian.Uint16(data[i+16 : i+18])
-		peersList = append(peersList, types.NewPeerAddress(ip, port))
+		peersList = append(peersList, shared.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil
 }
 
-func parseDictPeers(list []any) ([]types.PeerAddress, error) {
-	peersList := make([]types.PeerAddress, 0, len(list))
+func parseDictPeers(list []any) ([]shared.PeerAddress, error) {
+	peersList := make([]shared.PeerAddress, 0, len(list))
 
 	for _, entry := range list {
 		dict, ok := entry.(map[string]any)
@@ -144,7 +144,7 @@ func parseDictPeers(list []any) ([]types.PeerAddress, error) {
 
 		port := uint16(portRaw)
 
-		peersList = append(peersList, types.NewPeerAddress(ip, port))
+		peersList = append(peersList, shared.NewPeerAddress(ip, port))
 	}
 
 	return peersList, nil

@@ -4,7 +4,7 @@ import (
 	"net"
 
 	"github.com/rleo05/bittorrent-client/internal/piece"
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 type MessageStatus int
@@ -47,7 +47,7 @@ func (m MessageStatus) String() string {
 }
 
 type PeerSession struct {
-	sessionID 	 int64
+	sessionID    int64
 	conn         net.Conn
 	address      string
 	bitfield     []byte
@@ -60,7 +60,7 @@ type PeerSession struct {
 
 	seenFirstMessage bool
 
-	inFlightRequests map[types.InFlightKey]int
+	inFlightRequests map[shared.InFlightKey]int
 
 	msgChan      chan PeerMessage
 	commandChan  chan sessionCommand

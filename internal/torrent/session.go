@@ -8,13 +8,13 @@ import (
 	"github.com/rleo05/bittorrent-client/internal/disk"
 	"github.com/rleo05/bittorrent-client/internal/peer"
 	"github.com/rleo05/bittorrent-client/internal/piece"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 	"github.com/rleo05/bittorrent-client/internal/tracker"
-	"github.com/rleo05/bittorrent-client/internal/types"
 )
 
 type Session struct {
 	torrent *Torrent
-	Stats   *types.Stats
+	Stats   *shared.Stats
 	peerID  [20]byte
 
 	trackerManager *tracker.Manager
@@ -22,8 +22,8 @@ type Session struct {
 	pieceManager   *piece.Manager
 	diskManager    *disk.Manager
 
-	peerChan  chan types.PeerAddress
-	writeChan chan types.DiskWrite
+	peerChan  chan shared.PeerAddress
+	writeChan chan shared.DiskWrite
 }
 
 func generatePeerID() [20]byte {
@@ -38,7 +38,7 @@ func generatePeerID() [20]byte {
 }
 
 func NewSession(data *Torrent, port uint16) *Session {
-	stats := &types.Stats{}
+	stats := &shared.Stats{}
 	stats.Left.Store(data.TotalLength)
 	stats.Downloaded.Store(0)
 	stats.Uploaded.Store(0)
@@ -46,8 +46,8 @@ func NewSession(data *Torrent, port uint16) *Session {
 	session := &Session{
 		Stats:     stats,
 		peerID:    generatePeerID(),
-		peerChan:  make(chan types.PeerAddress, 200),
-		writeChan: make(chan types.DiskWrite, 50),
+		peerChan:  make(chan shared.PeerAddress, 200),
+		writeChan: make(chan shared.DiskWrite, 50),
 	}
 
 	session.trackerManager = tracker.NewManager(

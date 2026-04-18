@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/rleo05/bittorrent-client/internal/bencode"
-	"github.com/rleo05/bittorrent-client/internal/types"
+	"github.com/rleo05/bittorrent-client/internal/shared"
 )
 
 const (
@@ -64,10 +64,10 @@ func parseTorrent(data map[string]any, infoHash [20]byte) (*Torrent, error) {
 	if announceBytes, ok := data[announce].([]byte); ok {
 		url, err := url.ParseRequestURI(string(announceBytes))
 		if err == nil {
-			tracker := &types.Tracker{
-				Url: url,
-				Tier: 0,
-				Fails: 0,
+			tracker := &shared.Tracker{
+				Url:          url,
+				Tier:         0,
+				Fails:        0,
 				NextAnnounce: time.Now(),
 			}
 			torrent.Announce = tracker
@@ -77,22 +77,22 @@ func parseTorrent(data map[string]any, infoHash [20]byte) (*Torrent, error) {
 	}
 
 	if announceListRaw, ok := data[announceList].([]any); ok {
-		list := make([][]*types.Tracker, 0, len(announceListRaw))
+		list := make([][]*shared.Tracker, 0, len(announceListRaw))
 		for numTier, tierRaw := range announceListRaw {
 			tierList, ok := tierRaw.([]any)
 			if !ok {
 				continue
 			}
 
-			tier := make([]*types.Tracker, 0, len(tierList))
+			tier := make([]*shared.Tracker, 0, len(tierList))
 			for _, trackerRaw := range tierList {
 				if trackerBytes, ok := trackerRaw.([]byte); ok {
 					url, err := url.ParseRequestURI(string(trackerBytes))
 					if err == nil {
-						tracker := &types.Tracker{
-							Url: url,
-							Tier: numTier,
-							Fails: 0,
+						tracker := &shared.Tracker{
+							Url:          url,
+							Tier:         numTier,
+							Fails:        0,
 							NextAnnounce: time.Now(),
 						}
 						tier = append(tier, tracker)
@@ -293,8 +293,8 @@ func parseInfo(infoMap map[string]any) (*Info, error) {
 	return result, nil
 }
 
-func parseFiles(filesRaw []any) ([]types.File, error) {
-	filesList := make([]types.File, 0, len(filesRaw))
+func parseFiles(filesRaw []any) ([]shared.File, error) {
+	filesList := make([]shared.File, 0, len(filesRaw))
 
 	for i, fileRaw := range filesRaw {
 		fileDict, ok := fileRaw.(map[string]any)
@@ -321,7 +321,7 @@ func parseFiles(filesRaw []any) ([]types.File, error) {
 			pathSegments = append(pathSegments, filepath.Clean(string(segBytes)))
 		}
 
-		file := types.File{
+		file := shared.File{
 			Length: uint64(lengthVal),
 			Path:   pathSegments,
 		}
