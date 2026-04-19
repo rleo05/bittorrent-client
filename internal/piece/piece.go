@@ -72,6 +72,7 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 
+			m.markPieceStored(v.PieceIndex)
 			m.PieceCompletedChan <- v.PieceIndex
 		}
 	}
@@ -349,11 +350,13 @@ func (m *Manager) HandleReceivedBlock(pieceIndex uint32, begin uint32, block []b
 	var completed bool
 
 	if piece.ReceivedBlocks == piece.NeededBlocks {
+		piece.Status = shared.Complete
 		if m.validateHashLocked(piece) {
 			byteIndex := piece.Index / 8
 			bitIndex := piece.Index % 8
 			m.bitfield[byteIndex] |= byte(1 << (7 - bitIndex))
 			m.removeActivePiece(piece.Index)
+			piece.Status = shared.Writing
 
 			completed = true
 		}
@@ -434,4 +437,21 @@ func (m *Manager) validateHashLocked(piece *shared.PieceState) bool {
 
 	piece.Status = shared.Verified
 	return true
+}
+
+func (m *Manager) markPieceStored(pieceIndex int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if pieceIndex < 0 || pieceIndex >= len(m.pieces) {
+		return
+	}
+
+	piece := m.pieces[pieceIndex]
+	if piece == nil {
+		return
+	}
+
+	piece.Status = shared.Stored
+	piece.Data = nil
 }

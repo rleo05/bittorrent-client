@@ -12,6 +12,8 @@ type Config struct {
 	Announce     *shared.Tracker
 	AnnounceList [][]*shared.Tracker
 	PeerChan     chan shared.PeerAddress
+	Completed    <-chan struct{}
+	CompleteAck  chan<- struct{}
 	Port         uint16
 }
 

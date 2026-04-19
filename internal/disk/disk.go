@@ -16,11 +16,14 @@ type Config struct {
 	WriteChan       chan *shared.DiskWrite
 	WriteResultChan chan *shared.DiskWriteResult
 	CancelSession   context.CancelFunc
+	Stats           *shared.Stats
 	Name            string
 	Length          *uint64
 	PieceLength     uint64
 	Files           *[]shared.File
 	OutputRoot      string
+	Completed       chan<- struct{}
+	CompleteAck     <-chan struct{}
 }
 
 type fileLayout struct {
@@ -186,7 +189,17 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 
+			remaining, completed := m.recordWriteProgress(uint64(len(p.Data)))
 			m.reportWriteResult(ctx, p.PieceIndex, nil)
+
+			if completed {
+				log.Printf("download completed: downloaded=%d left=%d", m.Stats.Downloaded.Load(), remaining)
+				m.notifyCompletion(ctx)
+				if m.CancelSession != nil {
+					m.CancelSession()
+				}
+				return
+			}
 		}
 	}
 }
@@ -243,6 +256,48 @@ func (m *Manager) closeLayouts() {
 
 		_ = m.layouts[i].File.Close()
 		m.layouts[i].File = nil
+	}
+}
+
+func (m *Manager) recordWriteProgress(written uint64) (uint64, bool) {
+	if m.Stats == nil || written == 0 {
+		return 0, false
+	}
+
+	m.Stats.Downloaded.Add(written)
+
+	for {
+		currentLeft := m.Stats.Left.Load()
+		if written >= currentLeft {
+			if m.Stats.Left.CompareAndSwap(currentLeft, 0) {
+				return 0, true
+			}
+			continue
+		}
+
+		nextLeft := currentLeft - written
+		if m.Stats.Left.CompareAndSwap(currentLeft, nextLeft) {
+			return nextLeft, nextLeft == 0
+		}
+	}
+}
+
+func (m *Manager) notifyCompletion(ctx context.Context) {
+	if m.Completed != nil {
+		select {
+		case m.Completed <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	if m.CompleteAck == nil {
+		return
+	}
+
+	select {
+	case <-m.CompleteAck:
+	case <-ctx.Done():
 	}
 }
 

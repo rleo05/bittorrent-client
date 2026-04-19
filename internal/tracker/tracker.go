@@ -50,9 +50,19 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	trackerList := m.getTrackerList()
 
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.Completed:
+			m.runAnnounceCycle(ctx, trackerList, "completed", true)
+			m.notifyCompletion()
+			return
+		default:
+		}
+
 		var nextAnnounce time.Duration
 
-		nextAnnounce, announced := m.runAnnounceCycle(ctx, trackerList, event)
+		nextAnnounce, announced := m.runAnnounceCycle(ctx, trackerList, event, false)
 
 		if announced {
 			event = ""
@@ -66,16 +76,34 @@ func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 			nextAnnounce = maxDelay
 		}
 
+		timer := time.NewTimer(nextAnnounce)
+
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return
-		case <-time.After(nextAnnounce):
+		case <-m.Completed:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			m.runAnnounceCycle(ctx, trackerList, "completed", true)
+			m.notifyCompletion()
+			return
+		case <-timer.C:
 			continue
 		}
 	}
 }
 
-func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*shared.Tracker, event string) (time.Duration, bool) {
+func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*shared.Tracker, event string, force bool) (time.Duration, bool) {
 	request := m.buildAnnounceRequest(event)
 	var nextAnnounce time.Duration
 
@@ -83,7 +111,7 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*shared.
 	for _, v := range trackerList {
 		// iterate over each tracker in the tier
 		for j, t := range v {
-			if !canAnnounce(t) {
+			if !force && !canAnnounce(t) {
 				continue
 			}
 
@@ -127,6 +155,17 @@ func (m *Manager) runAnnounceCycle(ctx context.Context, trackerList [][]*shared.
 	}
 
 	return nextAnnounce, false
+}
+
+func (m *Manager) notifyCompletion() {
+	if m.CompleteAck == nil {
+		return
+	}
+
+	select {
+	case m.CompleteAck <- struct{}{}:
+	default:
+	}
 }
 
 func (m *Manager) handleAnnounceRequest(ctx context.Context, req *AnnounceRequest) (*TrackerResponse, error) {

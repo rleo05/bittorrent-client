@@ -25,6 +25,8 @@ type Session struct {
 	peerChan        chan shared.PeerAddress
 	writeChan       chan *shared.DiskWrite
 	writeResultChan chan *shared.DiskWriteResult
+	completedChan   chan struct{}
+	completeAckChan chan struct{}
 }
 
 func generatePeerID() [20]byte {
@@ -50,6 +52,8 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 		peerChan:        make(chan shared.PeerAddress, 200),
 		writeChan:       make(chan *shared.DiskWrite, 50),
 		writeResultChan: make(chan *shared.DiskWriteResult, 1),
+		completedChan:   make(chan struct{}, 1),
+		completeAckChan: make(chan struct{}, 1),
 	}
 
 	session.trackerManager = tracker.NewManager(
@@ -60,6 +64,8 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 			Announce:     data.Announce,
 			AnnounceList: data.AnnounceList,
 			PeerChan:     session.peerChan,
+			Completed:    session.completedChan,
+			CompleteAck:  session.completeAckChan,
 			Port:         port,
 		})
 
@@ -81,11 +87,14 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 	session.diskManager = disk.NewManager(disk.Config{
 		WriteChan:       session.writeChan,
 		WriteResultChan: session.writeResultChan,
+		Stats:           stats,
 		Name:            data.Info.Name,
 		Length:          data.Info.Length,
 		PieceLength:     data.Info.PieceLength,
 		Files:           data.Info.Files,
 		OutputRoot:      outputRoot,
+		Completed:       session.completedChan,
+		CompleteAck:     session.completeAckChan,
 	})
 
 	return session
