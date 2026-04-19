@@ -22,8 +22,9 @@ type Session struct {
 	pieceManager   *piece.Manager
 	diskManager    *disk.Manager
 
-	peerChan  chan shared.PeerAddress
-	writeChan chan shared.DiskWrite
+	peerChan        chan shared.PeerAddress
+	writeChan       chan *shared.DiskWrite
+	writeResultChan chan *shared.DiskWriteResult
 }
 
 func generatePeerID() [20]byte {
@@ -44,10 +45,11 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 	stats.Uploaded.Store(0)
 
 	session := &Session{
-		Stats:     stats,
-		peerID:    generatePeerID(),
-		peerChan:  make(chan shared.PeerAddress, 200),
-		writeChan: make(chan shared.DiskWrite, 50),
+		Stats:           stats,
+		peerID:          generatePeerID(),
+		peerChan:        make(chan shared.PeerAddress, 200),
+		writeChan:       make(chan *shared.DiskWrite, 50),
+		writeResultChan: make(chan *shared.DiskWriteResult, 1),
 	}
 
 	session.trackerManager = tracker.NewManager(
@@ -62,10 +64,11 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 		})
 
 	session.pieceManager = piece.NewManager(piece.Config{
-		WriteChan:   session.writeChan,
-		PieceLength: data.Info.PieceLength,
-		Pieces:      data.Info.Pieces,
-		TotalLength: data.TotalLength,
+		WriteChan:       session.writeChan,
+		WriteResultChan: session.writeResultChan,
+		PieceLength:     data.Info.PieceLength,
+		Pieces:          data.Info.Pieces,
+		TotalLength:     data.TotalLength,
 	})
 
 	session.peerManager = peer.NewManager(stats, peer.Config{
@@ -76,12 +79,13 @@ func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 		PieceCompletedChan: session.pieceManager.PieceCompletedChan,
 	})
 	session.diskManager = disk.NewManager(disk.Config{
-		WriteChan:   session.writeChan,
-		Name:        data.Info.Name,
-		Length:      data.Info.Length,
-		PieceLength: data.Info.PieceLength,
-		Files:       data.Info.Files,
-		OutputRoot: outputRoot,
+		WriteChan:       session.writeChan,
+		WriteResultChan: session.writeResultChan,
+		Name:            data.Info.Name,
+		Length:          data.Info.Length,
+		PieceLength:     data.Info.PieceLength,
+		Files:           data.Info.Files,
+		OutputRoot:      outputRoot,
 	})
 
 	return session
@@ -92,10 +96,14 @@ func (s *Session) Start(ctx context.Context, wg *sync.WaitGroup) error {
 		return err
 	}
 
-	wg.Add(3)
-	go s.trackerManager.Run(ctx, wg)
-	go s.peerManager.Run(ctx, wg)
-	go s.diskManager.Run(ctx, wg)
+	sessionCtx, cancel := context.WithCancel(ctx)
+	s.diskManager.CancelSession = cancel
+
+	wg.Add(4)
+	go s.trackerManager.Run(sessionCtx, wg)
+	go s.peerManager.Run(sessionCtx, wg)
+	go s.pieceManager.Run(sessionCtx, wg)
+	go s.diskManager.Run(sessionCtx, wg)
 
 	return nil
 }

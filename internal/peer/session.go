@@ -16,6 +16,8 @@ import (
 
 const (
 	maxInFlightRequests = 5
+	peerWriteTimeout    = 10 * time.Second
+	peerKeepAliveDelay  = 60 * time.Second
 )
 
 var (
@@ -106,16 +108,33 @@ func (s *PeerSession) messageReader() error {
 }
 
 func (s *PeerSession) messageWriter(ctx context.Context) error {
+	ticker := time.NewTicker(peerKeepAliveDelay)
+	defer ticker.Stop()
+
+	lastWriteAt := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case payload := <-s.outboundChan:
-			s.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			_, err := s.conn.Write(payload)
-			if err != nil {
+			if err := s.writePayload(payload); err != nil {
 				return s.peerErrorf("write message: %w", err)
+			}
+			lastWriteAt = time.Now()
+		case <-ticker.C:
+			if time.Since(lastWriteAt) >= peerKeepAliveDelay {
+				if err := s.writePayload(make([]byte, 4)); err != nil {
+					return s.peerErrorf("write message: %w", err)
+				}
+				lastWriteAt = time.Now()
 			}
 		}
 	}
+}
+
+func (s *PeerSession) writePayload(payload []byte) error {
+	s.conn.SetWriteDeadline(time.Now().Add(peerWriteTimeout))
+	_, err := s.conn.Write(payload)
+	return err
 }

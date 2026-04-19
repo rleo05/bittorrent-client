@@ -1,8 +1,10 @@
 package piece
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -15,10 +17,11 @@ const (
 )
 
 type Config struct {
-	WriteChan   chan shared.DiskWrite
-	PieceLength uint64
-	Pieces      []byte
-	TotalLength uint64
+	WriteChan       chan *shared.DiskWrite
+	WriteResultChan chan *shared.DiskWriteResult
+	PieceLength     uint64
+	Pieces          []byte
+	TotalLength     uint64
 }
 
 type Manager struct {
@@ -50,6 +53,29 @@ func NewManager(cfg Config) *Manager {
 	manager.initializePieces()
 
 	return manager
+}
+
+func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case v, ok := <-m.WriteResultChan:
+			if !ok {
+				return
+			}
+
+			if v.Error != nil {
+				log.Printf("piece manager stopped: disk write failed for piece=%d error=%v", v.PieceIndex, v.Error)
+				return
+			}
+
+			m.PieceCompletedChan <- v.PieceIndex
+		}
+	}
+
 }
 
 func (m *Manager) initializePieces() {
@@ -336,7 +362,7 @@ func (m *Manager) HandleReceivedBlock(pieceIndex uint32, begin uint32, block []b
 	m.mu.Unlock()
 
 	if completed {
-		diskWrite := shared.DiskWrite{
+		diskWrite := &shared.DiskWrite{
 			PieceIndex: piece.Index,
 			Offset:     int64(piece.Index) * int64(m.PieceLength),
 			Data:       append([]byte(nil), piece.Data...),

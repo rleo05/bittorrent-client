@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,12 +13,14 @@ import (
 )
 
 type Config struct {
-	WriteChan   chan shared.DiskWrite
-	Name        string
-	Length      *uint64
-	PieceLength uint64
-	Files       *[]shared.File
-	OutputRoot  string
+	WriteChan       chan *shared.DiskWrite
+	WriteResultChan chan *shared.DiskWriteResult
+	CancelSession   context.CancelFunc
+	Name            string
+	Length          *uint64
+	PieceLength     uint64
+	Files           *[]shared.File
+	OutputRoot      string
 }
 
 type fileLayout struct {
@@ -25,6 +28,7 @@ type fileLayout struct {
 	Start  int64
 	End    int64
 	Length int64
+	File   *os.File
 }
 
 type Manager struct {
@@ -37,12 +41,19 @@ func NewManager(cfg Config) *Manager {
 	return &Manager{Config: cfg}
 }
 
-func (m *Manager) Prepare() error {
-	if len(*m.Files) > 0 {
-		outputDir := filepath.Join(m.OutputRoot, m.Name)
-		if err := createDir(m.OutputRoot); err != nil {
-			return err
+func (m *Manager) Prepare() (err error) {
+	defer func() {
+		if err != nil {
+			m.closeLayouts()
 		}
+	}()
+
+	if err := createDir(m.OutputRoot); err != nil {
+		return err
+	}
+
+	if m.Files != nil && len(*m.Files) > 0 {
+		outputDir := filepath.Join(m.OutputRoot, m.Name)
 		if err := createMultiFilesParentDir(outputDir); err != nil {
 			return err
 		}
@@ -64,7 +75,7 @@ func (m *Manager) Prepare() error {
 
 	m.layouts = make([]fileLayout, 1)
 
-	_, err := m.createFile(0, m.OutputRoot, m.Name, *m.Length, 0)
+	_, err = m.createFile(0, m.OutputRoot, m.Name, *m.Length, 0)
 	if err != nil {
 		return err
 	}
@@ -73,10 +84,6 @@ func (m *Manager) Prepare() error {
 }
 
 func (m *Manager) createFile(index int, outputDir string, name string, length uint64, startOffset int64) (int64, error) {
-	if err := createDir(m.OutputRoot); err != nil {
-		return 0, err
-	}
-
 	targetPath := filepath.Join(outputDir, name)
 	rel, err := filepath.Rel(outputDir, targetPath)
 	if err != nil {
@@ -103,9 +110,9 @@ func (m *Manager) createFile(index int, outputDir string, name string, length ui
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
 
 	if err := f.Truncate(length64); err != nil {
+		f.Close()
 		return 0, err
 	}
 
@@ -114,6 +121,7 @@ func (m *Manager) createFile(index int, outputDir string, name string, length ui
 		Start:  startOffset,
 		End:    startOffset + length64,
 		Length: length64,
+		File:   f,
 	}
 
 	return startOffset + length64, nil
@@ -156,17 +164,108 @@ func castLength(length uint64) (int64, error) {
 
 func (m *Manager) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer m.closeLayouts()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-m.WriteChan:
+		case p, ok := <-m.WriteChan:
 			if !ok {
 				return
 			}
 
-			fmt.Println("writing piece")
+			fileIndex, err := m.findLayoutIndex(p.Offset)
+			if err != nil {
+				m.failWrite(ctx, p.PieceIndex, err)
+				return
+			}
+
+			if err := m.handleWrite(fileIndex, p); err != nil {
+				m.failWrite(ctx, p.PieceIndex, err)
+				return
+			}
+
+			m.reportWriteResult(ctx, p.PieceIndex, nil)
 		}
+	}
+}
+
+func (m *Manager) handleWrite(fileIndex int, p *shared.DiskWrite) error {
+	data := p.Data
+	offset := p.Offset
+
+	for len(data) > 0 {
+		if fileIndex < 0 || fileIndex >= len(m.layouts) {
+			return fmt.Errorf("invalid file layout index: %d", fileIndex)
+		}
+
+		fileLayout := m.layouts[fileIndex]
+		fileOffset := offset - fileLayout.Start
+		if fileOffset < 0 || fileOffset >= fileLayout.Length {
+			return fmt.Errorf("offset %d is outside file layout %q", offset, fileLayout.Path)
+		}
+
+		remainingInFile := fileLayout.Length - fileOffset
+		bytesToWrite := min(int64(len(data)), remainingInFile)
+
+		if fileLayout.File == nil {
+			return fmt.Errorf("file layout %q has no open descriptor", fileLayout.Path)
+		}
+
+		if _, err := fileLayout.File.WriteAt(data[:bytesToWrite], fileOffset); err != nil {
+			return err
+		}
+
+		data = data[bytesToWrite:]
+		offset += bytesToWrite
+		fileIndex++
+	}
+
+	return nil
+}
+
+func (m *Manager) findLayoutIndex(offset int64) (int, error) {
+	for i, v := range m.layouts {
+		if offset >= v.Start && offset < v.End {
+			return i, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no file layout found for offset %d", offset)
+}
+
+func (m *Manager) closeLayouts() {
+	for i := range m.layouts {
+		if m.layouts[i].File == nil {
+			continue
+		}
+
+		_ = m.layouts[i].File.Close()
+		m.layouts[i].File = nil
+	}
+}
+
+func (m *Manager) failWrite(ctx context.Context, pieceIndex int, err error) {
+	log.Printf("disk manager stopped: piece=%d error=%v", pieceIndex, err)
+	m.reportWriteResult(ctx, pieceIndex, err)
+	if m.CancelSession != nil {
+		m.CancelSession()
+	}
+}
+
+func (m *Manager) reportWriteResult(ctx context.Context, pieceIndex int, err error) {
+	if m.WriteResultChan == nil {
+		return
+	}
+
+	result := &shared.DiskWriteResult{
+		PieceIndex: pieceIndex,
+		Error:      err,
+	}
+
+	select {
+	case m.WriteResultChan <- result:
+	case <-ctx.Done():
 	}
 }

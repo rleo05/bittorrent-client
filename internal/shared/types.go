@@ -53,8 +53,13 @@ type BlockResponse struct {
 
 type DiskWrite struct {
 	PieceIndex int
-	Offset      int64
+	Offset     int64
 	Data       []byte
+}
+
+type DiskWriteResult struct {
+	PieceIndex int
+	Error      error
 }
 
 type File struct {
