@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -224,11 +223,21 @@ func parseInfo(infoMap map[string]any) (*Info, error) {
 	if !ok || len(nameBytes) == 0 {
 		return nil, fmt.Errorf("missing or invalid info.name")
 	}
-	result.Name = filepath.Clean(strings.TrimLeft(string(nameBytes), "/"))
+
+	name := string(nameBytes)
+	err := validatePathComponent(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid info.name: %w", err)
+	}
+	result.Name = name
 
 	if nameUTF8Bytes, ok := infoMap[nameUTF8].([]byte); ok {
-		s := filepath.Clean(strings.TrimLeft(string(nameUTF8Bytes), "/"))
-		result.NameUTF8 = &s
+		nameUTF8 := string(nameUTF8Bytes)
+		err := validatePathComponent(nameUTF8)
+		if err != nil {
+			return nil, fmt.Errorf("invalid info.name.utf-8: %w", err)
+		}
+		result.NameUTF8 = &nameUTF8
 	}
 
 	pieceLen, ok := infoMap[pieceLength].(int64)
@@ -266,6 +275,9 @@ func parseInfo(infoMap map[string]any) (*Info, error) {
 
 	var lengthVal *uint64
 	if l, ok := infoMap[length].(int64); ok {
+		if l < 0 {
+			return nil, fmt.Errorf("invalid info.length")
+		}
 		ul := uint64(l)
 		lengthVal = &ul
 		result.Length = lengthVal
@@ -303,7 +315,7 @@ func parseFiles(filesRaw []any) ([]shared.File, error) {
 		}
 
 		lengthVal, ok := fileDict[length].(int64)
-		if !ok {
+		if !ok || lengthVal < 0 {
 			return nil, fmt.Errorf("files[%d]: missing or invalid length", i)
 		}
 
@@ -313,12 +325,20 @@ func parseFiles(filesRaw []any) ([]shared.File, error) {
 		}
 
 		pathSegments := make([]string, 0, len(pathRaw))
-		for _, segment := range pathRaw {
-			segBytes, ok := segment.([]byte)
+		for _, rawSegment := range pathRaw {
+			segBytes, ok := rawSegment.([]byte)
 			if !ok {
 				return nil, fmt.Errorf("files[%d]: invalid path segment", i)
 			}
-			pathSegments = append(pathSegments, filepath.Clean(string(segBytes)))
+
+			segment := string(segBytes)
+
+			err := validatePathComponent(segment)
+			if err != nil {
+				return nil, fmt.Errorf("files[%d]: invalid path segment: %w", i, err)
+			}
+
+			pathSegments = append(pathSegments, segment)
 		}
 
 		file := shared.File{
@@ -328,10 +348,19 @@ func parseFiles(filesRaw []any) ([]shared.File, error) {
 
 		if pathUTF8Raw, ok := fileDict[pathUTF8].([]any); ok {
 			pathUTF8Segments := make([]string, 0, len(pathUTF8Raw))
-			for _, segment := range pathUTF8Raw {
-				if segBytes, ok := segment.([]byte); ok {
-					pathUTF8Segments = append(pathUTF8Segments, string(segBytes))
+			for _, rawSegment := range pathUTF8Raw {
+				segBytes, ok := rawSegment.([]byte)
+				if !ok {
+					continue
 				}
+
+				segment := string(segBytes)
+				err := validatePathComponent(segment)
+				if err != nil {
+					return nil, fmt.Errorf("files[%d]: invalid path.utf-8 segment: %w", i, err)
+				}
+
+				pathUTF8Segments = append(pathUTF8Segments, segment)
 			}
 			if len(pathUTF8Segments) > 0 {
 				file.PathUTF8 = &pathUTF8Segments
@@ -352,4 +381,21 @@ func parseFiles(filesRaw []any) ([]shared.File, error) {
 	}
 
 	return filesList, nil
+}
+
+func validatePathComponent(s string) error {
+	if s == "" {
+		return fmt.Errorf("empty component")
+	}
+	if s == "." || s == ".." {
+		return fmt.Errorf("reserved component %q", s)
+	}
+	if strings.ContainsRune(s, 0) {
+		return fmt.Errorf("component contains NUL")
+	}
+	if strings.ContainsAny(s, `/\`) {
+		return fmt.Errorf("component contains path separator")
+	}
+
+	return nil
 }

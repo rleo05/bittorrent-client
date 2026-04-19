@@ -298,9 +298,9 @@ func (m *Manager) releaseInFlightRequestLocked(key shared.InFlightKey, removeAct
 }
 
 func (m *Manager) HandleReceivedBlock(pieceIndex uint32, begin uint32, block []byte) error {
-    m.mu.Lock()
-    
-    piece, storedBlock, err := m.validateBlockLocked(pieceIndex, begin, len(block))
+	m.mu.Lock()
+
+	piece, storedBlock, err := m.validateBlockLocked(pieceIndex, begin, len(block))
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -308,49 +308,44 @@ func (m *Manager) HandleReceivedBlock(pieceIndex uint32, begin uint32, block []b
 
 	if piece == nil || storedBlock == nil {
 		m.mu.Unlock()
-		return nil 
+		return nil
 	}
 
-    if piece.Data == nil {
-        piece.Data = make([]byte, piece.Length)
-    }
+	if piece.Data == nil {
+		piece.Data = make([]byte, piece.Length)
+	}
 
-    copy(piece.Data[storedBlock.Offset:storedBlock.Offset+storedBlock.Length], block)
-    
-    storedBlock.Status = shared.Received
-    piece.ReceivedBlocks++
+	copy(piece.Data[storedBlock.Offset:storedBlock.Offset+storedBlock.Length], block)
 
-    diskWrite := shared.DiskWrite{
-        PieceLength: piece.Length,
-        PieceIndex:  piece.Index,
-        Begin:       storedBlock.Offset,
-        Data:        append([]byte(nil), block...), 
-    }
+	storedBlock.Status = shared.Received
+	piece.ReceivedBlocks++
 
-    var completed bool
-    var completedIndex int
+	var completed bool
 
-    if piece.ReceivedBlocks == piece.NeededBlocks {
-        if m.validateHashLocked(piece) {
-            byteIndex := piece.Index / 8
-            bitIndex := piece.Index % 8
-            m.bitfield[byteIndex] |= byte(1 << (7 - bitIndex))
-            m.removeActivePiece(piece.Index)
+	if piece.ReceivedBlocks == piece.NeededBlocks {
+		if m.validateHashLocked(piece) {
+			byteIndex := piece.Index / 8
+			bitIndex := piece.Index % 8
+			m.bitfield[byteIndex] |= byte(1 << (7 - bitIndex))
+			m.removeActivePiece(piece.Index)
 
-            completedIndex = piece.Index
-            completed = true
-        }
-    }
+			completed = true
+		}
+	}
 
-    m.mu.Unlock() 
+	m.mu.Unlock()
 
-    m.WriteChan <- diskWrite
-    
-    if completed {
-        m.PieceCompletedChan <- completedIndex
-    }
+	if completed {
+		diskWrite := shared.DiskWrite{
+			PieceIndex: piece.Index,
+			Offset:     int64(piece.Index) * int64(m.PieceLength),
+			Data:       append([]byte(nil), piece.Data...),
+		}
 
-    return nil
+		m.WriteChan <- diskWrite
+	}
+
+	return nil
 }
 
 func (m *Manager) validateBlockLocked(pieceIndex uint32, begin uint32, blockLen int) (*shared.PieceState, *shared.Block, error) {
@@ -359,7 +354,7 @@ func (m *Manager) validateBlockLocked(pieceIndex uint32, begin uint32, blockLen 
 	}
 
 	piece := m.pieces[int(pieceIndex)]
-	
+
 	if piece.Status != shared.Pending {
 		return nil, nil, nil
 	}

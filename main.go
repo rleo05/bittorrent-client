@@ -61,8 +61,17 @@ func main() {
 
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 
-	session := torrent.NewSession(t, port)
-	session.Start(ctx, &wg)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+        log.Fatal(err)
+    }
+
+	outputRoot := filepath.Join(homeDir, "Downloads")
+
+	session := torrent.NewSession(t, port, outputRoot)
+	if err := session.Start(ctx, &wg); err != nil {
+		log.Fatal(err)
+	}
 
 	wg.Wait()
 }

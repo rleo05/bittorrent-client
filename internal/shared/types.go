@@ -52,9 +52,8 @@ type BlockResponse struct {
 }
 
 type DiskWrite struct {
-	PieceLength int
 	PieceIndex int
-	Begin      int
+	Offset      int64
 	Data       []byte
 }
 

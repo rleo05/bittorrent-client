@@ -37,7 +37,7 @@ func generatePeerID() [20]byte {
 	return peerID
 }
 
-func NewSession(data *Torrent, port uint16) *Session {
+func NewSession(data *Torrent, port uint16, outputRoot string) *Session {
 	stats := &shared.Stats{}
 	stats.Left.Store(data.TotalLength)
 	stats.Downloaded.Store(0)
@@ -81,14 +81,21 @@ func NewSession(data *Torrent, port uint16) *Session {
 		Length:      data.Info.Length,
 		PieceLength: data.Info.PieceLength,
 		Files:       data.Info.Files,
+		OutputRoot: outputRoot,
 	})
 
 	return session
 }
 
-func (s *Session) Start(ctx context.Context, wg *sync.WaitGroup) {
+func (s *Session) Start(ctx context.Context, wg *sync.WaitGroup) error {
+	if err := s.diskManager.Prepare(); err != nil {
+		return err
+	}
+
 	wg.Add(3)
 	go s.trackerManager.Run(ctx, wg)
 	go s.peerManager.Run(ctx, wg)
 	go s.diskManager.Run(ctx, wg)
+
+	return nil
 }
